@@ -1,8 +1,21 @@
 import math
+import os
 import random
 import sys
 
 import pygame
+
+
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        # If not running as a PyInstaller bundle, use the directory where main.py is located
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    
+    return os.path.join(base_path, relative_path)
 
 # Initialization
 pygame.init()
@@ -129,10 +142,10 @@ def scaleBushSprite(width, height, rng):
     return pygame.transform.scale(baseSprite, (width, height)).convert_alpha()
 
 
-playerRunFrames = safeLoadFrames("RUN.png", runFrameCount)
-playerAttackFrames = safeLoadFrames("ATTACK.png", attackFrameCount)
-playerHurtFrames = safeLoadFrames("HURT.png", hurtFrameCount)
-bushSprites = loadBushSprites("BUSH.png", bushSheetColumns, bushSheetRows)
+playerRunFrames = safeLoadFrames(resource_path("RUN.png"), runFrameCount)
+playerAttackFrames = safeLoadFrames(resource_path("ATTACK.png"), attackFrameCount)
+playerHurtFrames = safeLoadFrames(resource_path("HURT.png"), hurtFrameCount)
+bushSprites = loadBushSprites(resource_path("BUSH.png"), bushSheetColumns, bushSheetRows)
 
 
 def computePlayerHitbox():
@@ -612,7 +625,7 @@ def updatePlayState(world, keys, events, dt):
     for spot in world["hidingSpots"]:
         if spot["solid"]:
             blockers.append(spot["rect"])
-        if world["playerRect"].colliderect(spot["rect"]):
+        if spot.get("type") == "bush" and world["playerRect"].colliderect(spot["rect"]):
             playerHidden = True
             hidingStrength = min(hidingStrength, spot["strength"])
 

@@ -40,7 +40,7 @@ Thumbs.db
 # Keep the spec file
 !forestWhisper.spec
 
-main.py
+
 __pycache__/main.cpython-313.pyc
 .gitignore
 .github/workflows/build.yml

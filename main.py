@@ -1,48 +1,125 @@
+# wrote this after school so sorry if it's messy
+# Import the stuff we need
 import math
 import random
-import sys
-
 import pygame
 
-# Initialization
+# Start up pygame
 pygame.init()
-width, height = 1280, 720
-levelWidth = 4200
-fps = 60
-gravity = 2400
-jumpForce = 900
-coyoteTime = 0.14
-jumpBuffer = 0.16
-walkSpeed = 240
-runSpeed = 340
-playerSize = (63, 120)
-backgroundColor = (8, 14, 22)
-playerColor = (150, 230, 255)
-playerGlow = (40, 120, 140)
-enemyColor = (40, 40, 50)
-droneColor = (80, 110, 130)
-stealthBarColor = (60, 200, 180)
-alertColor = (220, 80, 70)
-grassColor = (25, 70, 50)
-bushColor = (35, 80, 55)
-logColor = (70, 50, 30)
-rockColor = (55, 65, 75)
-rescueColor = (200, 255, 180)
-exitColor = (60, 200, 120)
+print("booting forest thingy... hope it runs")
 
+# Game settings (mostly vibes)
+SCREEN_WIDTH = 1280
+SCREEN_HEIGHT = 720
+FPS = 60
+
+# Player settings (fast math)
+PLAYER_JUMP = 900
+PLAYER_SPEED = 240
+PLAYER_RUN_SPEED = 340
+PLAYER_SIZE = (63, 120)
+GRAVITY = 2400
+
+# Colors (yup basic rgb)
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+BLUE = (0, 0, 255)
+GREEN = (0, 255, 0)
+RED = (255, 0, 0)
+random_notes = []  # maybe i save ideas in here later
+
+# Make the game window (aka blank canvas)
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Forest Game")
+clock = pygame.time.Clock()
+
+# Player class aka blue rectangle hero
+class Player:
+    def __init__(self):
+        self.x = 100
+        self.y = 100
+        self.speed = 5
+        self.jump_power = 15
+        self.velocity_y = 0
+        self.on_ground = False
+        self.rect = pygame.Rect(self.x, self.y, 50, 80)
+    
+    def update(self):
+        # Move left/right (nothing fancy)
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            self.x -= self.speed
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            self.x += self.speed
+        
+        # Jump
+        if (keys[pygame.K_SPACE] or keys[pygame.K_UP] or keys[pygame.K_w]) and self.on_ground:
+            self.velocity_y = -self.jump_power
+            self.on_ground = False
+        
+        # Apply gravity
+        self.velocity_y += 0.8
+        if self.velocity_y > 10:
+            self.velocity_y = 10
+        
+        self.y += self.velocity_y
+        
+        # Simple ground collision (just one floor lol)
+        if self.y > SCREEN_HEIGHT - 100:
+            self.y = SCREEN_HEIGHT - 100
+            self.velocity_y = 0
+            self.on_ground = True
+        
+        # Update rectangle for collision
+        self.rect.x = self.x
+        self.rect.y = self.y
+    
+    def draw(self, surface):
+        pygame.draw.rect(surface, BLUE, self.rect)
+
+# Game loop
+def main():
+    player = Player()
+    running = True
+    print("entering game loop... good luck!")
+    
+    while running:
+        # Handle events (spam buttons)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            
+            # Restart game with R key
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r:
+                    player = Player()
+        
+        # Update
+        player.update()
+        
+        # Draw
+        screen.fill(WHITE)
+        pygame.draw.rect(screen, GREEN, (0, SCREEN_HEIGHT - 50, SCREEN_WIDTH, 50))  # Ground
+        player.draw(screen)
+        
+        # Update display
+        pygame.display.flip()
+        clock.tick(FPS)
+    
+    pygame.quit()
+
+if __name__ == "__main__":
+    main()
+
+# these templates are just bushes because thats what we wanted
 hidingSpotTemplates = [
-    {"size": (140, 70), "strength": 0.25, "color": grassColor, "type": "grass", "solid": False},
     {"size": (110, 70), "strength": 0.3, "color": bushColor, "type": "bush", "solid": False},
-    {"size": (180, 60), "strength": 0.15, "color": logColor, "type": "log", "solid": True},
     {"size": (120, 80), "strength": 0.2, "color": bushColor, "type": "bush", "solid": False},
-    {"size": (160, 60), "strength": 0.12, "color": logColor, "type": "log", "solid": True},
-    {"size": (120, 120), "strength": 0.2, "color": rockColor, "type": "rock", "solid": True},
     {"size": (140, 80), "strength": 0.18, "color": bushColor, "type": "bush", "solid": False},
-    {"size": (110, 90), "strength": 0.22, "color": grassColor, "type": "grass", "solid": False},
-    {"size": (130, 110), "strength": 0.17, "color": rockColor, "type": "cave", "solid": True},
     {"size": (150, 80), "strength": 0.2, "color": bushColor, "type": "bush", "solid": False},
 ]
 
+# animation numbers i pulled from the sprite sheet
 runFrameCount = 16
 attackFrameCount = 7
 runAnimFps = 18
@@ -53,10 +130,18 @@ attackCooldown = 0.5
 attackActiveFrame = 3
 hurtFrameCount = 4
 hurtAnimFps = 8
-animalCount = 4
+orbCount = 4
 enemyTargetCount = 5
 bushSheetColumns = 3
 bushSheetRows = 3
+
+# Enemy animation constants
+enemyWalkingFrameCount = 9
+enemyDeathFrameCount = 8
+enemyWalkAnimFps = 12
+enemyDeathAnimFps = 10
+guardSize = (42, 80)
+droneSize = (48, 48)
 
 screen = pygame.display.set_mode((width, height))
 pygame.display.set_caption("Whispers of the Canopy")
@@ -67,6 +152,7 @@ smallFont = pygame.font.SysFont("arial", 20)
 
 
 def loadFrames(path, frameCount):
+    print(f"cutting up {path} into {frameCount} frames")
     sheet = pygame.image.load(path).convert_alpha()
     frameWidth = sheet.get_width() // max(1, frameCount)
     frames = []
@@ -79,6 +165,24 @@ def loadFrames(path, frameCount):
         "right": frames,
         "left": [pygame.transform.flip(frame, True, False) for frame in frames],
     }
+
+
+def loadEnemyFrames(path, frameCount, targetSize):
+    """loads enemy frames (like, hopefully)"""
+    try:
+        sheet = pygame.image.load(path).convert_alpha()
+        frameWidth = sheet.get_width() // max(1, frameCount)
+        frames = []
+        for index in range(frameCount):
+            frameSurf = sheet.subsurface(pygame.Rect(index * frameWidth, 0, frameWidth, sheet.get_height()))
+            scaledSurf = pygame.transform.smoothscale(frameSurf, targetSize)
+            frames.append(scaledSurf)
+        return {
+            "right": frames,
+            "left": [pygame.transform.flip(frame, True, False) for frame in frames],
+        }
+    except Exception:
+        return None
 
 
 def safeLoadFrames(path, frameCount):
@@ -102,6 +206,7 @@ def removeWhitePixels(surface, tolerance=4):
 
 def loadBushSprites(path, columns=3, rows=3):
     try:
+        print("loading bush sprites... crossing fingers")
         sheet = pygame.image.load(path).convert()
     except Exception:
         return []
@@ -129,13 +234,85 @@ def scaleBushSprite(width, height, rng):
     return pygame.transform.scale(baseSprite, (width, height)).convert_alpha()
 
 
-playerRunFrames = safeLoadFrames("RUN.png", runFrameCount)
-playerAttackFrames = safeLoadFrames("ATTACK.png", attackFrameCount)
-playerHurtFrames = safeLoadFrames("HURT.png", hurtFrameCount)
-bushSprites = loadBushSprites("BUSH.png", bushSheetColumns, bushSheetRows)
+def loadAnimalSprites(path, targetSize=(24, 24)):
+    """tries to grab animal sprites, no fancy tools here"""
+    try:
+        sheet = pygame.image.load(path).convert_alpha()
+        sheetWidth = sheet.get_width()
+        sheetHeight = sheet.get_height()
+        
+        # For 128x128, check if it looks like a sprite sheet (has visible content in grid cells)
+        # Otherwise treat as single image
+        if sheetWidth == 128 and sheetHeight == 128:
+            # Try extracting as 4x4 sprite sheet first
+            columns = 4
+            rows = 4
+            tileWidth = 32
+            tileHeight = 32
+            sprites = []
+            spritesWithContent = 0
+            
+            # Extract all sprites from the grid
+            for row in range(rows):
+                for col in range(columns):
+                    x = col * tileWidth
+                    y = row * tileHeight
+                    # Extract this tile from the sheet
+                    tileRect = pygame.Rect(x, y, tileWidth, tileHeight)
+                    tileSurface = pygame.Surface((tileWidth, tileHeight), pygame.SRCALPHA)
+                    tileSurface.blit(sheet, (0, 0), tileRect)
+                    
+                    # Quick check: sample a few pixels to see if there's content
+                    hasContent = False
+                    for sx in [tileWidth // 4, tileWidth // 2, 3 * tileWidth // 4]:
+                        for sy in [tileHeight // 4, tileHeight // 2, 3 * tileHeight // 4]:
+                            if sx < tileWidth and sy < tileHeight:
+                                r, g, b, a = tileSurface.get_at((sx, sy))
+                                if a > 50:  # Has substantial opacity
+                                    hasContent = True
+                                    spritesWithContent += 1
+                                    break
+                        if hasContent:
+                            break
+                    
+                    # Scale to target size and add to list
+                    scaled = pygame.transform.smoothscale(tileSurface, targetSize)
+                    sprites.append(scaled)
+            
+            # If we found content in multiple tiles (at least 4), it's likely a sprite sheet
+            # Otherwise, treat the whole image as a single sprite
+            if spritesWithContent >= 4:
+                return sprites
+            else:
+                # Treat as single image - scale the whole thing
+                scaled = pygame.transform.smoothscale(sheet, targetSize)
+                return [scaled]
+        
+        # For any other size, treat as single image
+        scaled = pygame.transform.smoothscale(sheet, targetSize)
+        return [scaled]
+    except Exception:
+        # If loading fails, return empty list (fallback to circle will be used)
+        return []
+
+
+playerRunFrames = safeLoadFrames("assets/RUN.png", runFrameCount)
+playerAttackFrames = safeLoadFrames("assets/ATTACK.png", attackFrameCount)
+playerHurtFrames = safeLoadFrames("assets/HURT.png", hurtFrameCount)
+bushSprites = loadBushSprites("assets/BUSH.png", bushSheetColumns, bushSheetRows)
+
+# Enemy sprites
+enemyWalkingFrames = loadEnemyFrames("assets/EnemyWalking.png", enemyWalkingFrameCount, guardSize)
+enemyDeathFrames = loadEnemyFrames("assets/EnemyDeath.png", enemyDeathFrameCount, guardSize)
+
+# Orb settings
+orbSize = 20
+orbGlowSize = 35
+orbPulseSpeed = 3.0
 
 
 def computePlayerHitbox():
+    print("calculating hitbox stuff the hard way")
     offsets = {"right": (0, 0), "left": (0, 0)}
     hitboxWidth, hitboxHeight = playerSize
     baseFrames = playerRunFrames or playerAttackFrames or playerHurtFrames
@@ -161,6 +338,7 @@ playerHitboxSize, playerSpriteOffsets = computePlayerHitbox()
 
 
 def makePlatforms(rng):
+    print("making platforms the lazy way")
     floorRect = pygame.Rect(0, 640, levelWidth, 120)
     mainPlatforms = [floorRect]
 
@@ -192,6 +370,7 @@ def makePlatforms(rng):
 
 
 def makeHidingSpots(rng, platforms):
+    print("making hiding spots (hope they arent floating)")
     spots = []
     count = rng.randint(8, 12)
 
@@ -241,27 +420,33 @@ def makeHidingSpots(rng, platforms):
     return spots
 
 
-def makeAnimals(rng, platforms):
-    animals = []
+def makeOrbs(rng, platforms):
+    print("dropping orbs around at random")
+    orbs = []
     perches = [p for p in platforms if p.height <= 20 and p.width > 40 and p.top <= 620]
     perches = perches or [platforms[0]]
     attempts = 0
 
-    while len(animals) < animalCount and attempts < animalCount * 4:
+    while len(orbs) < orbCount and attempts < orbCount * 4:
         attempts += 1
         platform = rng.choice(perches)
         left = platform.left + 10
-        right = platform.right - 34
+        right = platform.right - 40
         if right <= left:
             continue
         x = rng.randint(left, right)
-        y = platform.top - 24
-        animals.append({"rect": pygame.Rect(x, y, 24, 24), "rescued": False})
+        y = platform.top - orbSize - 5
+        orbs.append({
+            "rect": pygame.Rect(x, y, orbSize * 2, orbSize * 2),
+            "rescued": False,
+            "pulsePhase": rng.uniform(0, math.tau),
+        })
 
-    return animals
+    return orbs
 
 
 def makeEnemies(rng, platforms):
+    print("spawning enemies because stealth needs danger")
     enemies = []
     perches = [p for p in platforms if p.height <= 20 and p.width > 80]
     attempts = 0
@@ -314,6 +499,10 @@ def makeEnemies(rng, platforms):
                 "vision": vision,
                 "type": enemyType,
                 "active": True,
+                "animTime": rng.uniform(0, 1.0 / enemyWalkAnimFps),
+                "animFrame": 0,
+                "deathAnimTime": 0.0,
+                "deathAnimFrame": 0,
             }
         )
 
@@ -321,6 +510,7 @@ def makeEnemies(rng, platforms):
 
 
 def makeTutorialLevel(rng):
+    print("building the tutorial level by hand-ish")
     floorRect = pygame.Rect(0, 640, levelWidth, 120)
     platforms = [
         floorRect,
@@ -344,28 +534,12 @@ def makeTutorialLevel(rng):
     hidingSpots = [
         bush(pygame.Rect(120, 580, 140, 70), 0.25),
         bush(pygame.Rect(460, 540, 150, 70), 0.3),
-        {
-            "rect": pygame.Rect(760, 560, 160, 60),
-            "strength": 0.15,
-            "color": logColor,
-            "type": "log",
-            "solid": True,
-            "sprite": None,
-        },
         bush(pygame.Rect(1020, 500, 150, 70), 0.28),
-        {
-            "rect": pygame.Rect(1320, 500, 110, 90),
-            "strength": 0.2,
-            "color": grassColor,
-            "type": "grass",
-            "solid": False,
-            "sprite": None,
-        },
     ]
 
-    animals = [
-        {"rect": pygame.Rect(580, 480, 24, 24), "rescued": False},
-        {"rect": pygame.Rect(1250, 430, 24, 24), "rescued": False},
+    orbs = [
+        {"rect": pygame.Rect(580, 460, orbSize * 2, orbSize * 2), "rescued": False, "pulsePhase": 0.0},
+        {"rect": pygame.Rect(1250, 410, orbSize * 2, orbSize * 2), "rescued": False, "pulsePhase": math.pi},
     ]
 
     enemies = [
@@ -377,6 +551,10 @@ def makeTutorialLevel(rng):
             "vision": (260, 150),
             "type": "guard",
             "active": True,
+            "animTime": 0.0,
+            "animFrame": 0,
+            "deathAnimTime": 0.0,
+            "deathAnimFrame": 0,
         }
     ]
 
@@ -384,14 +562,14 @@ def makeTutorialLevel(rng):
     tutorialHints = [
         {"text": "Use A/D to move and SPACE to jump", "pos": (50, 90)},
         {"text": "Press S to crouch in bushes to stay hidden", "pos": (320, 180)},
-        {"text": "Rescue the animals, then head to the glowing exit", "pos": (520, 120)},
+        {"text": "Collect the glowing orbs, then head to the exit", "pos": (520, 120)},
         {"text": "Left click to attack if you need to fight", "pos": (760, 60)},
     ]
 
     return {
         "platforms": platforms,
         "hidingSpots": hidingSpots,
-        "animals": animals,
+        "orbs": orbs,
         "enemies": enemies,
         "exitRect": exitRect,
         "tutorialHints": tutorialHints,
@@ -399,6 +577,7 @@ def makeTutorialLevel(rng):
 
 
 def resetWorld(seed=None, tutorial=False):
+    # resetting everything because i probably got caught
     rng = random.Random(seed)
     playerRect = pygame.Rect(80, 640 - playerHitboxSize[1], playerHitboxSize[0], playerHitboxSize[1])
 
@@ -407,12 +586,12 @@ def resetWorld(seed=None, tutorial=False):
     else:
         platforms = makePlatforms(rng)
         hidingSpots = makeHidingSpots(rng, platforms)
-        animals = makeAnimals(rng, platforms)
+        orbs = makeOrbs(rng, platforms)
         enemies = makeEnemies(rng, platforms)
         levelData = {
             "platforms": platforms,
             "hidingSpots": hidingSpots,
-            "animals": animals,
+            "orbs": orbs,
             "enemies": enemies,
             "exitRect": pygame.Rect(levelWidth - 160, 420, 90, 220),
             "tutorialHints": [],
@@ -424,7 +603,7 @@ def resetWorld(seed=None, tutorial=False):
         "playerVel": pygame.Vector2(0, 0),
         "platforms": levelData["platforms"],
         "hidingSpots": levelData["hidingSpots"],
-        "animals": levelData["animals"],
+        "orbs": levelData["orbs"],
         "enemies": levelData["enemies"],
         "exitRect": levelData["exitRect"],
         "visibility": 35.0,
@@ -452,10 +631,12 @@ def resetWorld(seed=None, tutorial=False):
 
 
 def lineBlocked(start, end, blockers):
+    # lazy helper
     return any(block.clipline(start, end) for block in blockers)
 
 
 def pointInPoly(point, polygon):
+    # math i googled forever ago
     px, py = point
     inside = False
     j = len(polygon) - 1
@@ -472,6 +653,7 @@ def pointInPoly(point, polygon):
 
 
 def buildVisionCone(enemy):
+    # math triangles bc guards need eyes
     rect = enemy["rect"]
     facing = 1 if enemy["dir"] >= 0 else -1
     eyeX = rect.centerx
@@ -484,6 +666,7 @@ def buildVisionCone(enemy):
 
 
 def updateParticles(world, dt):
+    # particle physics (kinda)
     for particle in world["particles"]:
         particle["pos"][0] += particle["dir"][0] * 60 * dt
         particle["pos"][1] += particle["dir"][1] * 60 * dt
@@ -492,6 +675,7 @@ def updateParticles(world, dt):
 
 
 def spawnParticles(world, rect):
+    # sparkle maker
     for _ in range(8):
         angle = random.uniform(0, math.tau)
         world["particles"].append(
@@ -504,6 +688,7 @@ def spawnParticles(world, rect):
 
 
 def updatePlayState(world, keys, events, dt):
+    # heads up: this whole thing is one giant blob on purpose
     # Input handling
     world["jumpBuffer"] = max(0.0, world["jumpBuffer"] - dt)
     world["coyoteTimer"] = max(0.0, world["coyoteTimer"] - dt)
@@ -605,13 +790,10 @@ def updatePlayState(world, keys, events, dt):
         world["attackAnimTime"] = 0.0
         world["attackAnimFrame"] = 0
 
-    # Stealth and detection logic
+    # Stealth and detection logic - ONLY BUSHES work for hiding
     playerHidden = False
     hidingStrength = 1.0
-    blockers = []
     for spot in world["hidingSpots"]:
-        if spot["solid"]:
-            blockers.append(spot["rect"])
         if spot.get("type") == "bush" and world["playerRect"].colliderect(spot["rect"]):
             playerHidden = True
             hidingStrength = min(hidingStrength, spot["strength"])
@@ -651,6 +833,8 @@ def updatePlayState(world, keys, events, dt):
             if world["attackRect"].colliderect(enemy["rect"]):
                 enemy["active"] = False
                 enemy["cone"] = []
+                enemy["deathAnimTime"] = 0.0
+                enemy["deathAnimFrame"] = 0
                 spawnParticles(world, enemy["rect"])
 
     spotted = False
@@ -659,7 +843,17 @@ def updatePlayState(world, keys, events, dt):
             break
         if not enemy.get("active", True):
             enemy["cone"] = []
+            # Update death animation
+            if enemyDeathFrames:
+                enemy["deathAnimTime"] += dt
+                enemy["deathAnimFrame"] = min(int(enemy["deathAnimTime"] * enemyDeathAnimFps), enemyDeathFrameCount - 1)
             continue
+
+        # Update walking animation
+        if enemyWalkingFrames:
+            enemy["animTime"] += dt
+            totalFrames = len(enemyWalkingFrames.get("right", [])) or 1
+            enemy["animFrame"] = int(enemy["animTime"] * enemyWalkAnimFps) % totalFrames
 
         enemyRect = enemy["rect"]
         enemyRect.x += enemy["speed"] * enemy["dir"] * dt
@@ -670,11 +864,10 @@ def updatePlayState(world, keys, events, dt):
         conePoints = buildVisionCone(enemy)
         shiftedCone = [(x, y) for x, y in conePoints]
         enemy["cone"] = shiftedCone
-        blocked = lineBlocked(conePoints[0], playerCenter, blockers)
         inside = pointInPoly(playerCenter, shiftedCone)
         detectionRate = 0
 
-        if inside and not blocked:
+        if inside:
             if not playerHidden:
                 world["caught"] = True
                 world["flashAmount"] = 1.0
@@ -704,24 +897,25 @@ def updatePlayState(world, keys, events, dt):
             world["caught"] = True
             world["flashAmount"] = 1.0
 
-    # Rescue logic
+    # Orb collection logic
     if not world["caught"]:
-        for critter in world["animals"]:
-            if not critter["rescued"] and world["playerRect"].colliderect(critter["rect"]):
-                critter["rescued"] = True
+        for orb in world["orbs"]:
+            if not orb["rescued"] and world["playerRect"].colliderect(orb["rect"]):
+                orb["rescued"] = True
                 world["rescued"] += 1
-                spawnParticles(world, critter["rect"])
+                spawnParticles(world, orb["rect"])
 
     updateParticles(world, dt)
 
     # Win check
-    if not world["caught"] and world["rescued"] == len(world["animals"]) and world["playerRect"].colliderect(world["exitRect"]):
+    if not world["caught"] and world["rescued"] == len(world["orbs"]) and world["playerRect"].colliderect(world["exitRect"]):
         world["win"] = True
 
     world["flashAmount"] = max(0.0, world["flashAmount"] - dt)
 
 
 def drawBackground(surface, cameraX):
+    # painting parallax trees by hand because why not
     surface.fill(backgroundColor)
     for layer in range(3):
         layerColor = (10 + layer * 10, 25 + layer * 20, 20 + layer * 10)
@@ -732,13 +926,85 @@ def drawBackground(surface, cameraX):
 
 
 def blitPlayerSprite(surface, sprite, world, orientation, cam):
-    offsetX, offsetY = playerSpriteOffsets.get(orientation, playerSpriteOffsets.get("right", (0, 0)))
-    spriteRect = sprite.get_rect(topleft=(world["playerRect"].x - cam - offsetX, world["playerRect"].y - offsetY))
-    surface.blit(sprite, spriteRect)
+    """draws the player sprite if it doesn't explode"""
+    try:
+        if sprite is None:
+            return False
+        offsetX, offsetY = playerSpriteOffsets.get(orientation, playerSpriteOffsets.get("right", (0, 0)))
+        drawX = world["playerRect"].x - cam - offsetX
+        drawY = world["playerRect"].y - offsetY
+        # Ensure sprite is valid and coordinates are reasonable
+        if sprite.get_width() > 0 and sprite.get_height() > 0:
+            spriteRect = sprite.get_rect(topleft=(drawX, drawY))
+            surface.blit(sprite, spriteRect)
+            return True
+    except (AttributeError, TypeError, pygame.error):
+        pass
+    return False
+
+
+def drawOrb(surface, orb, cam, time):
+    """makes the glowy orb thing do its pulsing stuff"""
+    # hi glowy friend
+    if orb["rescued"]:
+        return
+    
+    centerX = int(orb["rect"].centerx - cam)
+    centerY = int(orb["rect"].centery)
+    
+    # Calculate pulse based on time and phase
+    pulse = 0.5 + 0.5 * math.sin(time * orbPulseSpeed + orb.get("pulsePhase", 0))
+    currentGlowSize = orbGlowSize * (0.8 + 0.2 * pulse)
+    currentOrbSize = orbSize * (0.9 + 0.1 * pulse)
+    
+    # Draw outer glow (multiple layers for smooth glow effect)
+    glowAlpha = int(80 + 40 * pulse)
+    for i in range(3, 0, -1):
+        glowRadius = int(currentGlowSize * (i / 3))
+        if glowRadius > 0:
+            glowSurface = pygame.Surface((glowRadius * 2 + 4, glowRadius * 2 + 4), pygame.SRCALPHA)
+            alpha = int(glowAlpha * (i / 3) * 0.6)
+            glowCenter = glowRadius + 2
+            pygame.draw.circle(glowSurface, (*orbGlowColor, alpha), (glowCenter, glowCenter), glowRadius)
+            surface.blit(glowSurface, (centerX - glowCenter, centerY - glowCenter))
+    
+    # Draw orb core (bright center)
+    coreRadius = max(3, int(currentOrbSize * 0.6))
+    pygame.draw.circle(surface, orbCoreColor, (centerX, centerY), coreRadius)
+    
+    # Draw orb outer ring
+    ringRadius = int(currentOrbSize)
+    if ringRadius > 0:
+        pygame.draw.circle(surface, orbColor, (centerX, centerY), ringRadius, 2)
+    
+    # Draw visual marker (arrow pointing up above orb)
+    markerOffset = int(currentGlowSize * 0.7) + 20
+    markerY = centerY - markerOffset
+    markerAlpha = int(180 + 75 * pulse)
+    
+    # Draw arrow marker using a small surface
+    markerSize = 30
+    markerSurface = pygame.Surface((markerSize, markerSize), pygame.SRCALPHA)
+    markerCenterX = markerSize // 2
+    markerCenterY = markerSize // 2
+    
+    # Draw arrow pointing up
+    arrowPoints = [
+        (markerCenterX, markerCenterY - 10),
+        (markerCenterX - 6, markerCenterY - 2),
+        (markerCenterX + 6, markerCenterY - 2),
+    ]
+    pygame.draw.polygon(markerSurface, (*orbGlowColor, markerAlpha), arrowPoints)
+    
+    # Draw small circle at arrow base
+    pygame.draw.circle(markerSurface, (*orbGlowColor, markerAlpha), (markerCenterX, markerCenterY + 2), 4)
+    
+    # Blit marker above the orb
+    surface.blit(markerSurface, (centerX - markerCenterX, markerY - markerCenterY))
 
 
 def drawGame(surface, world):
-    # Rendering
+    # big drawing pile
     drawBackground(surface, world["cameraX"])
     cam = world["cameraX"]
 
@@ -758,55 +1024,102 @@ def drawGame(surface, world):
 
     for enemy in world["enemies"]:
         rect = enemy["rect"]
-        color = enemyColor if enemy["type"] == "guard" else droneColor
-        if not enemy.get("active", True):
-            color = tuple(min(255, c + 60) for c in color)
-        pygame.draw.rect(surface, color, (rect.x - cam, rect.y, rect.width, rect.height), border_radius=6)
-        if enemy.get("active", True):
+        enemyActive = enemy.get("active", True)
+        enemyType = enemy.get("type", "guard")
+        
+        # Draw enemy sprite
+        spriteDrawn = False
+        if not enemyActive and enemyDeathFrames:
+            # Draw death animation
+            deathFrames = enemyDeathFrames.get("right", []) or enemyDeathFrames.get("left", [])
+            if deathFrames:
+                deathFrame = min(enemy.get("deathAnimFrame", 0), len(deathFrames) - 1)
+                sprite = deathFrames[deathFrame]
+                orientation = "right" if enemy.get("dir", 1) >= 0 else "left"
+                if orientation == "left" and "left" in enemyDeathFrames:
+                    sprite = enemyDeathFrames["left"][deathFrame]
+                surface.blit(sprite, (rect.x - cam, rect.y))
+                spriteDrawn = True
+        elif enemyActive and enemyWalkingFrames and enemyType == "guard":
+            # Draw walking animation for guards
+            orientation = "right" if enemy.get("dir", 1) >= 0 else "left"
+            walkFrames = enemyWalkingFrames.get(orientation, [])
+            if walkFrames:
+                animFrame = enemy.get("animFrame", 0) % len(walkFrames)
+                sprite = walkFrames[animFrame]
+                surface.blit(sprite, (rect.x - cam, rect.y))
+                spriteDrawn = True
+        
+        # Fallback to rectangle if sprite not drawn
+        if not spriteDrawn:
+            color = enemyColor if enemyType == "guard" else droneColor
+            if not enemyActive:
+                color = tuple(min(255, c + 60) for c in color)
+            pygame.draw.rect(surface, color, (rect.x - cam, rect.y, rect.width, rect.height), border_radius=6)
+        
+        # Draw vision cone for active enemies
+        if enemyActive:
             cone = enemy.get("cone")
             if cone:
                 conePoints = [(x - cam, y) for x, y in cone]
-                coneColor = (255, 210, 90, 60) if enemy["type"] == "guard" else (120, 200, 255, 60)
+                coneColor = (255, 210, 90, 60) if enemyType == "guard" else (120, 200, 255, 60)
                 pygame.draw.polygon(visionSurface, coneColor, conePoints)
 
     surface.blit(visionSurface, (0, 0))
 
-    for critter in world["animals"]:
-        if not critter["rescued"]:
-            pygame.draw.circle(surface, rescueColor, (critter["rect"].centerx - cam, critter["rect"].centery), 10)
+    # Draw orbs with pulsing glow and visual markers
+    currentTime = pygame.time.get_ticks() / 1000.0
+    for orb in world["orbs"]:
+        drawOrb(surface, orb, cam, currentTime)
 
+    # Draw player sprite (always draw, even if sprites fail to load)
     spriteDrawn = False
     orientation = "right" if world["facing"] >= 0 else "left"
+    
+    # Try to draw player sprite based on state
+    try:
+        if world["caught"] and playerHurtFrames:
+            hurtFrames = playerHurtFrames.get(orientation, [])
+            if hurtFrames and len(hurtFrames) > 0:
+                animIndex = (pygame.time.get_ticks() * hurtAnimFps // 1000) % len(hurtFrames)
+                sprite = hurtFrames[animIndex]
+                if blitPlayerSprite(surface, sprite, world, orientation, cam):
+                    spriteDrawn = True
 
-    if world["caught"] and playerHurtFrames:
-        hurtFrames = playerHurtFrames.get(orientation, [])
-        if hurtFrames:
-            animIndex = (pygame.time.get_ticks() * hurtAnimFps // 1000) % len(hurtFrames)
-            sprite = hurtFrames[animIndex]
-            blitPlayerSprite(surface, sprite, world, orientation, cam)
-            spriteDrawn = True
+        if not spriteDrawn and world["attacking"] and playerAttackFrames:
+            attackFrames = playerAttackFrames.get(orientation, [])
+            if attackFrames and len(attackFrames) > 0:
+                idx = min(world["attackAnimFrame"], len(attackFrames) - 1)
+                sprite = attackFrames[idx]
+                if blitPlayerSprite(surface, sprite, world, orientation, cam):
+                    spriteDrawn = True
 
-    if not spriteDrawn and world["attacking"] and playerAttackFrames:
-        attackFrames = playerAttackFrames.get(orientation, [])
-        if attackFrames:
-            idx = min(world["attackAnimFrame"], len(attackFrames) - 1)
-            sprite = attackFrames[idx]
-            blitPlayerSprite(surface, sprite, world, orientation, cam)
-            spriteDrawn = True
+        if not spriteDrawn and playerRunFrames:
+            runFrames = playerRunFrames.get(orientation, [])
+            if runFrames and len(runFrames) > 0:
+                animFrame = world.get("animFrame", 0) % len(runFrames)
+                sprite = runFrames[animFrame]
+                if blitPlayerSprite(surface, sprite, world, orientation, cam):
+                    spriteDrawn = True
+    except (KeyError, IndexError, AttributeError, TypeError):
+        # If sprite rendering fails, fall back to rectangle
+        spriteDrawn = False
 
-    if not spriteDrawn and playerRunFrames:
-        runFrames = playerRunFrames.get(orientation, [])
-        if runFrames:
-            sprite = runFrames[world["animFrame"] % len(runFrames)]
-            blitPlayerSprite(surface, sprite, world, orientation, cam)
-            spriteDrawn = True
-
+    # Always draw player fallback (rectangle) if sprites didn't render
+    # This ensures the player is always visible, even if sprites fail
     if not spriteDrawn:
-        pygame.draw.rect(surface, playerColor, (world["playerRect"].x - cam, world["playerRect"].y, world["playerRect"].width, world["playerRect"].height), border_radius=12)
+        playerX = int(world["playerRect"].x - cam)
+        playerY = int(world["playerRect"].y)
+        # Always draw the player rectangle, even if off-screen (pygame handles clipping)
+        try:
+            pygame.draw.rect(surface, playerColor, (playerX, playerY, world["playerRect"].width, world["playerRect"].height), border_radius=12)
+        except (TypeError, ValueError):
+            # If coordinates are invalid, draw at a safe fallback position
+            pygame.draw.rect(surface, playerColor, (width // 2 - 20, height // 2 - 20, 40, 40), border_radius=12)
 
     for particle in world["particles"]:
         alpha = int(255 * (particle["life"]))
-        pygame.draw.circle(surface, (200, 255, 220, alpha), (int(particle["pos"][0] - cam), int(particle["pos"][1])), 3)
+        pygame.draw.circle(surface, (*orbGlowColor, alpha), (int(particle["pos"][0] - cam), int(particle["pos"][1])), 3)
 
     stealthRect = pygame.Rect(30, 30, 280, 22)
     pygame.draw.rect(surface, (40, 50, 60), stealthRect)
@@ -820,8 +1133,8 @@ def drawGame(surface, world):
     pygame.draw.rect(surface, alertColor, (alertRect.x, alertRect.y, alertFill, alertRect.height))
     pygame.draw.rect(surface, (200, 200, 200), alertRect, 2)
 
-    animalsText = font.render(f"Animals freed: {world['rescued']}/{len(world['animals'])}", True, (220, 230, 230))
-    surface.blit(animalsText, (30, 65))
+    orbsText = font.render(f"Orbs collected: {world['rescued']}/{len(world['orbs'])}", True, (220, 230, 230))
+    surface.blit(orbsText, (30, 65))
 
     hintText = smallFont.render("A/D move | SPACE jump | S hide | Left click attack | R retry", True, (170, 180, 190))
     surface.blit(hintText, (30, height - 40))
@@ -850,6 +1163,7 @@ def drawGame(surface, world):
 
 
 def drawTitle(surface):
+    # TODO: add cooler art here someday
     drawBackground(surface, 0)
     titleText = bigFont.render("Whispers of the Canopy", True, (220, 240, 230))
     promptText = font.render("Press ENTER to start", True, (180, 190, 190))
@@ -858,6 +1172,7 @@ def drawTitle(surface):
 
 
 def drawCaught(surface):
+    # red screen of shame
     caughtText = bigFont.render("Caught!", True, (240, 120, 120))
     promptText = font.render("Press R to retry or wait for restart...", True, (230, 230, 230))
     noteText = smallFont.render("Visibility blew your cover.", True, (210, 210, 210))
@@ -867,10 +1182,11 @@ def drawCaught(surface):
 
 
 def drawWin(surface, world):
+    # cheesy win text
     if world and world.get("isTutorial"):
         winText = bigFont.render("Tutorial complete!", True, (200, 255, 200))
         promptText = font.render("Press ENTER to begin the real mission", True, (230, 230, 230))
-        noteText = smallFont.render("Remember: rescue every animal and stay hidden.", True, (210, 220, 210))
+        noteText = smallFont.render("Remember: collect every orb and stay hidden.", True, (210, 220, 210))
         surface.blit(winText, (width // 2 - winText.get_width() // 2, height // 2 - 80))
         surface.blit(promptText, (width // 2 - promptText.get_width() // 2, height // 2 - 20))
         surface.blit(noteText, (width // 2 - noteText.get_width() // 2, height // 2 + 20))
@@ -886,9 +1202,16 @@ worldState = None
 gameState = "title"
 stateTimer = 0.0
 
-# Game loop
+# states are just strings because why not
+print("loop time, dont crash now")
+# Game loop (forever)
 while True:
-    dt = clock.tick(fps) / 1000
+    dt_raw = clock.tick(fps) / 1000.0
+    # Cap delta time aggressively to prevent large jumps when window loses/gains focus
+    # Maximum of 2 frames worth of time (prevents issues when clicking)
+    max_dt = (1.0 / fps) * 2
+    dt = min(dt_raw, max_dt)
+    
     eventList = pygame.event.get()
     for event in eventList:
         if event.type == pygame.QUIT:
@@ -897,19 +1220,21 @@ while True:
 
     keyState = pygame.key.get_pressed()
 
+    # TODO: maybe use a real state machine someday
     if gameState == "title":
         if any(evt.type == pygame.KEYDOWN and evt.key == pygame.K_RETURN for evt in eventList):
             worldState = resetWorld(tutorial=not tutorialCompleted)
             gameState = "playing"
             stateTimer = 0.0
     elif gameState == "playing":
-        updatePlayState(worldState, keyState, eventList, dt)
-        if worldState["caught"]:
-            gameState = "caught"
-            stateTimer = 0.0
-        if worldState["win"]:
-            gameState = "win"
-            stateTimer = 0.0
+        if worldState is not None:
+            updatePlayState(worldState, keyState, eventList, dt)
+            if worldState["caught"]:
+                gameState = "caught"
+                stateTimer = 0.0
+            if worldState["win"]:
+                gameState = "win"
+                stateTimer = 0.0
     elif gameState == "caught":
         stateTimer += dt
         restartPressed = any(evt.type == pygame.KEYDOWN and evt.key == pygame.K_r for evt in eventList)
@@ -927,14 +1252,18 @@ while True:
             gameState = "playing"
             stateTimer = 0.0
 
-    # Rendering
+    # rendering stuff so the screen isnt blank
     if gameState == "title":
         drawTitle(screen)
     else:
-        drawGame(screen, worldState)
-        if gameState == "caught":
-            drawCaught(screen)
-        if gameState == "win":
-            drawWin(screen, worldState)
+        if worldState is not None:
+            drawGame(screen, worldState)
+            if gameState == "caught":
+                drawCaught(screen)
+            if gameState == "win":
+                drawWin(screen, worldState)
+        else:
+            # Fallback if worldState is None
+            drawTitle(screen)
 
     pygame.display.flip()

@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Forest Game</title>
+    <style>
+        /* super basic styling bc i'm lazy */
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        #gameCanvas {
+            border: 2px solid white;
+        .preload-images {
+            position: absolute;
+            left: -9999px;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- hiding images somewhere off screen lol -->
+    <div class="preload-images">
+        <img id="runSprite" src="https://hc-cdn.hel1.your-objectstorage.com/s/v3/fd928ebfc670a318a63322ac90b412f8dcaa2543_run.png" alt="Run">
+        <img id="attackSprite" src="https://hc-cdn.hel1.your-objectstorage.com/s/v3/57782f541c678455ea6b403a4f0e13480e024a97_attack.png" alt="Attack">
+        <img id="hurtSprite" src="https://hc-cdn.hel1.your-objectstorage.com/s/v3/a3c1fc21b677cf5472802420c9c63b82667d245b_hurt.png" alt="Hurt">
+        <img id="bushSprite" src="https://hc-cdn.hel1.your-objectstorage.com/s/v3/e9fe6733e0f1deac3c3744a76ba0448d6a701921_bush.png" alt="Bush">
+        <img id="enemyWalkingSprite" src="https://hc-cdn.hel1.your-objectstorage.com/s/v3/6edbbbdf5c581fbc652ef04487dfbc481ac99eb3_enemywalking.png" alt="Enemy Walking">
+        <img id="enemyDeathSprite" src="https://hc-cdn.hel1.your-objectstorage.com/s/v3/a4a994b7cd48d6ca388ef4ec7ad9b34b2cd7a6dd_enemydeath.png" alt="Enemy Death">
+    </div>
+
+    <canvas id="gameCanvas" width="1280" height="720"></canvas>
+
+    <script>
+        // hi future me: sorry this script is a spaghetti pile but at least it runs
+        // random numbers i scribbled so the world fits on my monitor
+        var GAME_WIDTH = 1280;
+        var GAME_HEIGHT = 720;
+        var LEVEL_WIDTH = 4200;
+        var FPS = 60;
+        var GRAVITY = 2400;
+        var JUMP_FORCE = 900;
+        var COYOTE_TIME = 0.14;
+        var JUMP_BUFFER = 0.16;
+        var WALK_SPEED = 240;
+        var RUN_SPEED = 340;
+        var PLAYER_WIDTH = 63;
+        var PLAYER_HEIGHT = 120;
+        
+        // animation junk (pls don't mess with these)
+        var RUN_FRAME_COUNT = 16;
+        var ATTACK_FRAME_COUNT = 7;
+        var HURT_FRAME_COUNT = 4;
+        var RUN_ANIM_FPS = 18;
+        var ATTACK_ANIM_FPS = 16;
+        var HURT_ANIM_FPS = 8;
+        var ATTACK_WIDTH = 110;
+        var ATTACK_HEIGHT = 70;
+        var ATTACK_COOLDOWN = 0.5;
+        var ATTACK_ACTIVE_FRAME = 3;
+        
+        // bushes + enemies math that i kinda guessed
+        var BUSH_COLUMNS = 3;
+        var BUSH_ROWS = 3;
+        var ENEMY_TARGET_COUNT = 5;
+        var ENEMY_WALKING_FRAME_COUNT = 9;
+        var ENEMY_DEATH_FRAME_COUNT = 8;
+        var ENEMY_WALK_ANIM_FPS = 12;
+        var ENEMY_DEATH_ANIM_FPS = 10;
+        var GUARD_WIDTH = 42;
+        var GUARD_HEIGHT = 80;
+        var DRONE_WIDTH = 48;
+        var DRONE_HEIGHT = 48;
+        
+        // sparkly orb numbers from vibes
+        var ORB_COUNT = 4;
+        var ORB_SIZE = 20;
+        var ORB_GLOW_SIZE = 35;
+        var ORB_PULSE_SPEED = 3.0;
+
+        // color palette i eyeballed at 2am
+        var COLORS = {
+            background: '#080e16',
+            player: '#96e6ff',
+            playerGlow: '#287c8c',
+            enemy: '#282832',
+            drone: '#506e82',
+            stealth: '#3cc8b4',
+            alert: '#dc5046',
+            bush: '#235037',
+            exit: '#3cc878',
+            orb: '#b4dcff',
+            orbGlow: '#64b4ff',
+            orbCore: '#dcf0ff',
+            platform: '#1e2823'
+        };
+        var randomNotesINeverUse = []; // maybe i'll store secrets here later idk
+
+        // canvas wiring (literally just grabbing it)
+        var canvas = document.getElementById('gameCanvas'); // hope this exists lol
+        var ctx = canvas.getContext('2d'); // drawing magic thing
+
+        // keyboard/mouse stash
+        var keys = {};
+        var mouseClicked = false;
+
+        // dumping all the frames in these objects
+        var runFrames = { right: [], left: [] };
+        var attackFrames = { right: [], left: [] };
+        var hurtFrames = { right: [], left: [] };
+        var bushSprites = [];
+        var enemyWalkingFrames = { right: [], left: [] };
+        var enemyDeathFrames = { right: [], left: [] };
+
+        // whole-game mood swings live here
+        var gameState = 'loading';
+        var worldState = null; // sorry for using one giant global object
+        var tutorialCompleted = false;
+        var stateTimer = 0;
+        var lastTime = performance.now();
+        var spritesLoaded = 0;
+        var totalSprites = 6;
+
+        // bargain bin random generator i swiped
+        class SeededRandom {
+            constructor(seed = Date.now()) {
+                this.seed = seed;
+            }
+            
+            random() {
+                var x = Math.sin(this.seed++) * 10000; // i totally copied this from the internet
+                return x - Math.floor(x);
+            }
+            
+            randint(min, max) {
+                return Math.floor(this.random() * (max - min + 1)) + min;
+            }
+            
+            choice(array) {
+                return array[Math.floor(this.random() * array.length)];
+            }
+            
+            uniform(min, max) {
+                return min + this.random() * (max - min);
+            }
+        }
+
+        // sprite chopping zone
+        function extractFrames(image, frameCount, targetWidth, targetHeight, outputFrames) {
+            if (!image || !image.complete) return; // no pic? no frames.
+            console.log('cutting sprite sheet cuz apparently i have to', frameCount);
+            
+            var frameWidth = image.width / frameCount;
+            var frameHeight = image.height;
+            
+            for (var i = 0; i < frameCount; i++) {
+                // draw it once facing right
+                var canvas = document.createElement('canvas');
+                canvas.width = targetWidth;
+                canvas.height = targetHeight;
+                var ctx = canvas.getContext('2d');
+                
+                ctx.drawImage(
+                    image,
+                    i * frameWidth, 0, frameWidth, frameHeight,
+                    0, 0, targetWidth, targetHeight
+                );
+                
+                outputFrames.right.push(canvas);
+                
+                // then flip it because mirrors are free
+                var flipped = document.createElement('canvas');
+                flipped.width = targetWidth;
+                flipped.height = targetHeight;
+                var flipCtx = flipped.getContext('2d');
+                flipCtx.translate(targetWidth, 0);
+                flipCtx.scale(-1, 1);
+                flipCtx.drawImage(canvas, 0, 0);
+                
+                outputFrames.left.push(flipped);
+            }
+        }
+
+        function removeWhitePixels(canvas, tolerance = 4) {
+            try {
+                var ctx = canvas.getContext('2d');
+                var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                var data = imageData.data;
+                var threshold = 255 - tolerance;
+                
+                for (var i = 0; i < data.length; i += 4) {
+                    var r = data[i];
+                    var g = data[i + 1];
+                    var b = data[i + 2];
+                    
+                    // If pixel is close to white, make it transparent
+                    if (r >= threshold && g >= threshold && b >= threshold) {
+                        data[i + 3] = 0; // Set alpha to 0
+                    }
+                }
+                
+                ctx.putImageData(imageData, 0, 0);
+            } catch (e) {
+                console.warn('cant delete white pixels, browser mad:', e.message);
+                // whatever, we'll live with it
+            }
+            return canvas;
+        }
+
+        function extractBushSprites() {
+            var bushImg = document.getElementById('bushSprite');
+            if (!bushImg || !bushImg.complete) {
+                console.warn('bush pic isnt ready yet chill');
+                return;
+            }
+            
+            console.log('trying to slice bush pic:', bushImg.naturalWidth, 'x', bushImg.naturalHeight);
+            
+            var tileWidth = bushImg.width / BUSH_COLUMNS;
+            var tileHeight = bushImg.height / BUSH_ROWS;
+            
+            for (var row = 0; row < BUSH_ROWS; row++) {
+                for (var col = 0; col < BUSH_COLUMNS; col++) {
+                    var canvas = document.createElement('canvas');
+                    canvas.width = tileWidth;
+                    canvas.height = tileHeight;
+                    var ctx = canvas.getContext('2d');
+                    
+                    ctx.drawImage(
+                        bushImg,
+                        col * tileWidth, row * tileHeight, tileWidth, tileHeight,
+                        0, 0, tileWidth, tileHeight
+                    );
+                    
+                    // Try to remove white pixels (may fail with CORS)
+                    removeWhitePixels(canvas);
+                    
+                    bushSprites.push(canvas);
+                }
+            }
+            
+            console.log(`got ${bushSprites.length} bush chunks`);
+        }
+
+        function checkSpriteLoaded() {
+            spritesLoaded++;
+            console.log(`sprites so far: ${spritesLoaded}/${totalSprites}`);
+            
+            if (spritesLoaded >= totalSprites) {
+                console.log('all sprites are in, now i get to chop them up');
+                // Extract all frames (no bush sprites needed - using rectangles)
+                extractFrames(document.getElementById('runSprite'), RUN_FRAME_COUNT, PLAYER_WIDTH, PLAYER_HEIGHT, runFrames);
+                extractFrames(document.getElementById('attackSprite'), ATTACK_FRAME_COUNT, PLAYER_WIDTH, PLAYER_HEIGHT, attackFrames);
+                extractFrames(document.getElementById('hurtSprite'), HURT_FRAME_COUNT, PLAYER_WIDTH, PLAYER_HEIGHT, hurtFrames);
+                extractFrames(document.getElementById('enemyWalkingSprite'), ENEMY_WALKING_FRAME_COUNT, GUARD_WIDTH, GUARD_HEIGHT, enemyWalkingFrames);
+                extractFrames(document.getElementById('enemyDeathSprite'), ENEMY_DEATH_FRAME_COUNT, GUARD_WIDTH, GUARD_HEIGHT, enemyDeathFrames);
+                
+                console.log('finally sliced the frames, let's just start already');
+                gameState = 'title';
+            }
+        }
+
+        function initSprites() {
+            var spriteIds = ['runSprite', 'attackSprite', 'hurtSprite', 'bushSprite', 'enemyWalkingSprite', 'enemyDeathSprite'];
+            
+            console.log('ok time to load a bunch of pngs');
+            
+            spriteIds.forEach(id => {
+                var img = document.getElementById(id);
+                if (!img) {
+                    console.error(`uhhh cant find image tag: ${id}`);
+                    return;
+                }
+                
+                console.log(`checking on ${id}:`, {
+                    src: img.src,
+                    complete: img.complete,
+                    naturalWidth: img.naturalWidth,
+                    naturalHeight: img.naturalHeight
+                });
+                
+                img.onload = () => {
+                    console.log(`loaded ${id} yay (${img.naturalWidth}x${img.naturalHeight})`);
+                    checkSpriteLoaded();
+                };
+                
+                img.onerror = (e) => {
+                    console.error(`oops sprite ${id} died`, e);
+                    checkSpriteLoaded();
+                };
+                
+                // If already complete, trigger check
+                if (img.complete) {
+                    if (img.naturalWidth > 0) {
+                        console.log(`browser already had ${id}, neat`);
+                        setTimeout(checkSpriteLoaded, 10);
+                    } else {
+                        console.error(`Image failed to load (naturalWidth = 0): ${id}`);
+                        setTimeout(checkSpriteLoaded, 10);
+                    }
+                }
+            });
+        }
+
+        // level maker thingy
+        function makePlatforms(rng) {
+            var platforms = [
+                { x: 0, y: 640, width: LEVEL_WIDTH, height: 120 } // Floor
+            ];
+
+            var currentX = 140;
+            var currentY = rng.randint(480, 560);
+            var maxX = LEVEL_WIDTH - 420;
+
+            while (currentX < maxX) {
+                var width = rng.randint(170, 260);
+                platforms.push({ x: currentX, y: currentY, width: width, height: 18 });
+                var gap = rng.randint(90, 150);
+                currentX += width + gap;
+                currentY = Math.max(380, Math.min(600, currentY + rng.randint(-60, 60)));
+            }
+
+            // Landing platform near exit
+            var landingWidth = 280;
+            var landingY = Math.max(380, Math.min(580, currentY));
+            var landingX = LEVEL_WIDTH - landingWidth - 120;
+            platforms.push({ x: landingX, y: landingY, width: landingWidth, height: 18 });
+
+            // Add some extra platforms above
+            for (var i = 0; i < 3; i++) {
+                var base = platforms[rng.randint(1, platforms.length - 1)];
+                var width = rng.randint(130, 190);
+                var x = base.x + base.width / 2 + rng.randint(-120, 120) - width / 2;
+                x = Math.max(80, Math.min(LEVEL_WIDTH - width - 80, x));
+                var y = Math.max(300, base.y - rng.randint(70, 130));
+                platforms.push({ x, y, width, height: 18 });
+            }
+
+            return platforms;
+        }
+
+        function makeHidingSpots(rng, platforms) {
+            var spots = [];
+            var count = rng.randint(8, 12);
+
+            // ONLY BUSHES (as per user request) - now using colored rectangles
+            var bushTemplates = [
+                { width: 110, height: 70, strength: 0.3 },
+                { width: 120, height: 80, strength: 0.2 },
+                { width: 140, height: 80, strength: 0.18 },
+                { width: 150, height: 80, strength: 0.2 },
+            ];
+
+            for (var i = 0; i < count; i++) {
+                var template = rng.choice(bushTemplates);
+                var platform = rng.choice(platforms);
+                
+                var x, y;
+                if (platform.width >= template.width + 20) {
+                    var minX = platform.x + 5;
+                    var maxX = platform.x + platform.width - template.width - 5;
+                    x = rng.randint(Math.floor(minX), Math.floor(maxX));
+                    y = platform.y - template.height;
+                } else {
+                    x = rng.randint(60, LEVEL_WIDTH - template.width - 60);
+                    y = Math.min(rng.randint(520, 640 - template.height), 640 - template.height);
+                }
+
+                spots.push({
+                    x, y,
+                    width: template.width,
+                    height: template.height,
+                    strength: template.strength,
+                    type: 'bush',
+                    solid: false,
+                    sprite: null // No sprites, use rectangles
+                });
+            }
+
+            return spots;
+        }
+
+        function makeOrbs(rng, platforms) {
+            var orbs = [];
+            var perches = platforms.filter(p => p.height <= 20 && p.width > 40 && p.y <= 620);
+            var validPerches = perches.length > 0 ? perches : [platforms[0]];
+            var attempts = 0;
+
+            while (orbs.length < ORB_COUNT && attempts < ORB_COUNT * 4) {
+                attempts++;
+                var platform = rng.choice(validPerches);
+                var left = platform.x + 10;
+                var right = platform.x + platform.width - 40;
+                
+                if (right <= left) continue;
+                
+                var x = rng.randint(left, right);
+                var y = platform.y - ORB_SIZE - 5;
+                
+                orbs.push({
+                    x, y,
+                    width: ORB_SIZE * 2,
+                    height: ORB_SIZE * 2,
+                    rescued: false,
+                    pulsePhase: rng.uniform(0, Math.PI * 2)
+                });
+            }
+
+            return orbs;
+        }
+
+        function makeEnemies(rng, platforms) {
+            var enemies = [];
+            var perches = platforms.filter(p => p.height <= 20 && p.width > 80);
+            var attempts = 0;
+
+            while (enemies.length < ENEMY_TARGET_COUNT && attempts < ENEMY_TARGET_COUNT * 6) {
+                attempts++;
+                var isGuard = rng.random() < 0.65;
+
+                var enemy;
+                if (isGuard && perches.length > 0) {
+                    var platform = rng.choice(perches);
+                    var width = GUARD_WIDTH;
+                    var height = GUARD_HEIGHT;
+                    var roam = rng.randint(140, Math.min(420, platform.width + 200));
+                    var pathLeft = Math.max(0, platform.x + platform.width / 2 - roam / 2);
+                    var pathRight = Math.min(LEVEL_WIDTH, pathLeft + roam);
+                    var maxPos = pathRight - width;
+                    if (maxPos <= pathLeft) continue;
+                    var x = Math.max(pathLeft, Math.min(platform.x, maxPos));
+                    var y = platform.y - height;
+                    
+                    enemy = {
+                        x, y, width, height,
+                        pathLeft, pathRight,
+                        speed: rng.randint(60, 110),
+                        dir: rng.random() < 0.5 ? 1 : -1,
+                        visionReach: rng.randint(260, 330),
+                        visionSpread: rng.randint(150, 200),
+                        type: 'guard',
+                        active: true,
+                        animTime: rng.uniform(0, 1.0 / ENEMY_WALK_ANIM_FPS),
+                        animFrame: 0,
+                        deathAnimTime: 0,
+                        deathAnimFrame: 0
+                    };
+                } else {
+                    var width = DRONE_WIDTH;
+                    var height = DRONE_HEIGHT;
+                    var x = rng.randint(100, LEVEL_WIDTH - width - 100);
+                    var y = rng.randint(320, 460);
+                    var roam = rng.randint(220, 420);
+                    var pathLeft = Math.max(0, x - roam / 2);
+                    var pathRight = Math.min(LEVEL_WIDTH, pathLeft + roam);
+                    
+                    enemy = {
+                        x, y, width, height,
+                        pathLeft, pathRight,
+                        speed: rng.randint(110, 160),
+                        dir: rng.random() < 0.5 ? 1 : -1,
+                        visionReach: rng.randint(200, 280),
+                        visionSpread: rng.randint(130, 180),
+                        type: 'drone',
+                        active: true,
+                        animTime: rng.uniform(0, 1.0 / ENEMY_WALK_ANIM_FPS),
+                        animFrame: 0,
+                        deathAnimTime: 0,
+                        deathAnimFrame: 0
+                    };
+                }
+
+                enemies.push(enemy);
+            }
+
+            return enemies;
+        }
+
+        function makeTutorialLevel(rng) {
+            var platforms = [
+                { x: 0, y: 640, width: LEVEL_WIDTH, height: 120 },
+                { x: 200, y: 560, width: 180, height: 18 },
+                { x: 520, y: 520, width: 200, height: 18 },
+                { x: 860, y: 500, width: 220, height: 18 },
+                { x: 1180, y: 470, width: 220, height: 18 },
+                { x: 1500, y: 520, width: 220, height: 18 },
+            ];
+
+            // ONLY BUSHES for tutorial - using colored rectangles
+            var hidingSpots = [
+                { x: 120, y: 580, width: 140, height: 70, strength: 0.25, type: 'bush', solid: false, sprite: null },
+                { x: 460, y: 540, width: 150, height: 70, strength: 0.3, type: 'bush', solid: false, sprite: null },
+                { x: 1020, y: 500, width: 150, height: 70, strength: 0.28, type: 'bush', solid: false, sprite: null },
+            ];
+
+            var orbs = [
+                { x: 580, y: 460, width: ORB_SIZE * 2, height: ORB_SIZE * 2, rescued: false, pulsePhase: 0 },
+                { x: 1250, y: 410, width: ORB_SIZE * 2, height: ORB_SIZE * 2, rescued: false, pulsePhase: Math.PI },
+            ];
+
+            var enemies = [
+                {
+                    x: 900, y: 440, width: GUARD_WIDTH, height: GUARD_HEIGHT,
+                    pathLeft: 850, pathRight: 1150,
+                    speed: 70, dir: 1,
+                    visionReach: 260, visionSpread: 150,
+                    type: 'guard', active: true,
+                    animTime: 0, animFrame: 0,
+                    deathAnimTime: 0, deathAnimFrame: 0
+                }
+            ];
+
+            return {
+                platforms,
+                hidingSpots,
+                orbs,
+                enemies,
+                exitRect: { x: 1650, y: 380, width: 90, height: 220 },
+                tutorialHints: [
+                    { text: "Use A/D to move and SPACE to jump", x: 50, y: 90 },
+                    { text: "Press S to crouch in bushes to stay hidden", x: 320, y: 180 },
+                    { text: "Collect the glowing orbs, then head to the exit", x: 520, y: 120 },
+                    { text: "Left click to attack if you need to fight", x: 760, y: 60 },
+                ]
+            };
+        }
+
+        function resetWorld(seed = null, tutorial = false) {
+            var rng = new SeededRandom(seed || Date.now());
+            
+            var levelData;
+            if (tutorial) {
+                levelData = makeTutorialLevel(rng);
+            } else {
+                var platforms = makePlatforms(rng);
+                var hidingSpots = makeHidingSpots(rng, platforms);
+                var orbs = makeOrbs(rng, platforms);
+                var enemies = makeEnemies(rng, platforms);
+                
+                levelData = {
+                    platforms,
+                    hidingSpots,
+                    orbs,
+                    enemies,
+                    exitRect: { x: LEVEL_WIDTH - 160, y: 420, width: 90, height: 220 },
+                    tutorialHints: []
+                };
+            }
+
+            return {
+                playerX: 80,
+                playerY: 640 - PLAYER_HEIGHT,
+                playerVelX: 0,
+                playerVelY: 0,
+                facing: 1,
+                onGround: false,
+                coyoteTimer: 0,
+                jumpBuffer: 0,
+                animFrame: 0,
+                animTime: 0,
+                attacking: false,
+                attackCooldown: 0,
+                attackAnimFrame: 0,
+                attackAnimTime: 0,
+                attackRect: null,
+                
+                platforms: levelData.platforms,
+                hidingSpots: levelData.hidingSpots,
+                orbs: levelData.orbs,
+                enemies: levelData.enemies,
+                exitRect: levelData.exitRect,
+                tutorialHints: levelData.tutorialHints,
+                
+                visibility: 35,
+                alertMeter: 0,
+                rescued: 0,
+                cameraX: 0,
+                caught: false,
+                win: false,
+                flashAmount: 0,
+                particles: [],
+                isTutorial: tutorial
+            };
+        }
+
+        // collision math stuff
+        function rectCollides(r1, r2) {
+            return r1.x < r2.x + r2.width &&
+                   r1.x + r1.width > r2.x &&
+                   r1.y < r2.y + r2.height &&
+                   r1.y + r1.height > r2.y;
+        }
+
+        function buildVisionCone(enemy) {
+            var facing = enemy.dir >= 0 ? 1 : -1;
+            var eyeX = enemy.x + enemy.width / 2;
+            var eyeY = enemy.type === 'guard' ? enemy.y + 20 : enemy.y + enemy.height / 2;
+            var reach = enemy.visionReach;
+            var spread = enemy.visionSpread;
+            
+            var tip = [eyeX + facing * reach, eyeY - 30];
+            var upper = [eyeX + facing * reach * 0.6, eyeY - spread * 0.4];
+            var lower = [eyeX + facing * reach * 0.6, eyeY + spread * 0.4];
+            
+            return [[eyeX, eyeY], upper, tip, lower];
+        }
+
+        function pointInPoly(point, polygon) {
+            var [px, py] = point;
+            var inside = false;
+            var j = polygon.length - 1;
+            
+            for (var i = 0; i < polygon.length; i++) {
+                var [ix, iy] = polygon[i];
+                var [jx, jy] = polygon[j];
+                var intersect = ((iy > py) !== (jy > py)) &&
+                    (px < (jx - ix) * (py - iy) / (jy - iy + 0.0001) + ix);
+                if (intersect) inside = !inside;
+                j = i;
+            }
+            
+            return inside;
+        }
+
+        // sparkle particles
+        function spawnParticles(world, x, y) {
+            for (var i = 0; i < 8; i++) {
+                var angle = Math.random() * Math.PI * 2;
+                world.particles.push({
+                    x: x,
+                    y: y,
+                    dx: Math.cos(angle),
+                    dy: Math.sin(angle),
+                    life: 0.4 + Math.random() * 0.4
+                });
+            }
+        }
+
+        function updateParticles(world, dt) {
+            for (var p of world.particles) {
+                p.x += p.dx * 60 * dt;
+                p.y += p.dy * 60 * dt;
+                p.life -= dt;
+            }
+            world.particles = world.particles.filter(p => p.life > 0);
+        }
+
+        // update loop (chaos central)
+        function updatePlayState(world, dt) {
+            // warning: this function basically runs EVERYTHING, my bad
+            // Input handling
+            world.jumpBuffer = Math.max(0, world.jumpBuffer - dt);
+            world.coyoteTimer = Math.max(0, world.coyoteTimer - dt);
+            world.attackCooldown = Math.max(0, world.attackCooldown - dt);
+            world.attackRect = null;
+
+            var moveDir = 0;
+            if (keys['a'] || keys['ArrowLeft']) moveDir -= 1;
+            if (keys['d'] || keys['ArrowRight']) moveDir += 1;
+            var crouching = keys['s'] || keys['ArrowDown'];
+            var running = keys['shift'];
+
+            // Movement
+            var moveSpeed = running ? RUN_SPEED : WALK_SPEED;
+            if (crouching) moveSpeed *= 0.6;
+            
+            // Directly set velocity based on input
+            if (moveDir !== 0) {
+                world.playerVelX = moveDir * moveSpeed;
+                world.facing = moveDir > 0 ? 1 : -1;
+            } else {
+                // Stop immediately when no input
+                world.playerVelX = 0;
+            }
+
+            // Jump
+            if (world.jumpBuffer > 0 && (world.onGround || world.coyoteTimer > 0)) {
+                world.playerVelY = -JUMP_FORCE;
+                world.onGround = false;
+                world.coyoteTimer = 0;
+                world.jumpBuffer = 0;
+            }
+
+            // Gravity
+            world.playerVelY += GRAVITY * dt;
+
+            // Horizontal collision
+            world.playerX += world.playerVelX * dt;
+            var playerRect = { x: world.playerX, y: world.playerY, width: PLAYER_WIDTH, height: PLAYER_HEIGHT }; // temp hitbox thingy
+            
+            for (var platform of world.platforms) {
+                if (rectCollides(playerRect, platform)) {
+                    if (world.playerVelX > 0) {
+                        world.playerX = platform.x - PLAYER_WIDTH;
+                    } else if (world.playerVelX < 0) {
+                        world.playerX = platform.x + platform.width;
+                    }
+                }
+            }
+
+            // Vertical collision
+            world.playerY += world.playerVelY * dt;
+            playerRect.x = world.playerX;
+            playerRect.y = world.playerY;
+            world.onGround = false;
+
+            for (var platform of world.platforms) {
+                if (rectCollides(playerRect, platform)) {
+                    if (world.playerVelY > 0) {
+                        world.playerY = platform.y - PLAYER_HEIGHT;
+                        world.onGround = true;
+                        world.playerVelY = 0;
+                    } else if (world.playerVelY < 0) {
+                        world.playerY = platform.y + platform.height;
+                        world.playerVelY = 0;
+                    }
+                }
+            }
+
+            if (world.onGround) world.coyoteTimer = COYOTE_TIME;
+
+            // Attack
+            if (mouseClicked && !world.attacking && world.attackCooldown <= 0) {
+                world.attacking = true;
+                world.attackCooldown = ATTACK_COOLDOWN;
+                world.attackAnimTime = 0;
+                world.attackAnimFrame = 0;
+                mouseClicked = false;
+            }
+
+            // Animation
+            var moving = Math.abs(world.playerVelX) > 60;
+            if (runFrames.right.length > 0) {
+                if (moving) {
+                    world.animTime += dt;
+                    world.animFrame = Math.floor(world.animTime * RUN_ANIM_FPS) % runFrames.right.length;
+                } else {
+                    world.animTime = 0;
+                    world.animFrame = 0;
+                }
+            }
+
+            if (world.attacking) {
+                world.attackAnimTime += dt;
+                var currentFrame = Math.floor(world.attackAnimTime * ATTACK_ANIM_FPS);
+                if (currentFrame >= attackFrames.right.length) {
+                    world.attacking = false;
+                    world.attackAnimTime = 0;
+                    world.attackAnimFrame = 0;
+                } else {
+                    world.attackAnimFrame = currentFrame;
+                }
+            }
+
+            // Stealth logic - ONLY BUSHES work for hiding
+            var playerHidden = false;
+            var hidingStrength = 1.0;
+            
+            for (var spot of world.hidingSpots) {
+                if (spot.type === 'bush' && rectCollides(playerRect, spot)) {
+                    playerHidden = true;
+                    hidingStrength = Math.min(hidingStrength, spot.strength);
+                }
+            }
+
+            var targetVisibility = 85; // this number jumps all over the place
+            if (crouching) targetVisibility = 60;
+            if (playerHidden) targetVisibility = 20 + 60 * hidingStrength;
+
+            var speedBonus = Math.min(Math.abs(world.playerVelX) / RUN_SPEED * 30, 30);
+            if (!world.onGround) targetVisibility += 10;
+            if (moveDir === 0) targetVisibility += speedBonus * 0.4;
+            else targetVisibility += speedBonus;
+
+            world.visibility += (targetVisibility - world.visibility) * 4 * dt;
+            world.visibility = Math.max(5, Math.min(100, world.visibility));
+
+            // Camera
+            var cameraGoal = world.playerX + PLAYER_WIDTH / 2 - GAME_WIDTH / 2;
+            world.cameraX += (Math.max(0, Math.min(LEVEL_WIDTH - GAME_WIDTH, cameraGoal)) - world.cameraX) * 2.5 * dt;
+
+            // Attack collision
+            var attackActive = world.attacking && world.attackAnimFrame >= ATTACK_ACTIVE_FRAME;
+            if (attackActive) {
+                var slashRect = {
+                    x: world.playerX + world.facing * (PLAYER_WIDTH / 2 + ATTACK_WIDTH / 2) - ATTACK_WIDTH / 2,
+                    y: world.playerY + PLAYER_HEIGHT / 2 - ATTACK_HEIGHT / 2,
+                    width: ATTACK_WIDTH,
+                    height: ATTACK_HEIGHT
+                };
+                world.attackRect = slashRect;
+
+                for (var enemy of world.enemies) {
+                    if (enemy.active && rectCollides(slashRect, enemy)) {
+                        enemy.active = false;
+                        spawnParticles(world, enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
+                    }
+                }
+            }
+
+            // Enemy AI and detection
+            var spotted = false;
+            var playerCenter = [world.playerX + PLAYER_WIDTH / 2, world.playerY + PLAYER_HEIGHT / 2];
+
+            for (var enemy of world.enemies) {
+                if (!enemy.active) {
+                    // Update death animation
+                    enemy.deathAnimTime += dt;
+                    enemy.deathAnimFrame = Math.min(
+                        Math.floor(enemy.deathAnimTime * ENEMY_DEATH_ANIM_FPS),
+                        ENEMY_DEATH_FRAME_COUNT - 1
+                    );
+                    continue;
+                }
+
+                // Update walking animation
+                enemy.animTime += dt;
+                enemy.animFrame = Math.floor(enemy.animTime * ENEMY_WALK_ANIM_FPS) % ENEMY_WALKING_FRAME_COUNT;
+
+                // Movement
+                enemy.x += enemy.speed * enemy.dir * dt;
+                if (enemy.x < enemy.pathLeft || enemy.x + enemy.width > enemy.pathRight) {
+                    enemy.dir *= -1;
+                    enemy.x = Math.max(enemy.pathLeft, Math.min(enemy.x, enemy.pathRight - enemy.width));
+                }
+
+                // Vision cone detection
+                var cone = buildVisionCone(enemy);
+                var inside = pointInPoly(playerCenter, cone);
+                var detectionRate = 0;
+
+                if (inside) {
+                    if (!playerHidden) {
+                        world.caught = true;
+                        world.flashAmount = 1.0;
+                        spotted = true;
+                        break;
+                    }
+                    var visibilityFactor = world.visibility / 100;
+                    detectionRate += 30 * visibilityFactor * 0.4;
+                    if (crouching) detectionRate *= 0.6;
+                }
+
+                // Sound detection
+                var distance = Math.hypot(
+                    enemy.x + enemy.width / 2 - playerCenter[0],
+                    enemy.y + enemy.height / 2 - playerCenter[1]
+                );
+                if (Math.abs(world.playerVelX) > WALK_SPEED * 0.9 && distance < 220) {
+                    detectionRate += 20;
+                }
+
+                if (detectionRate > 0) spotted = true;
+                world.alertMeter += detectionRate * dt;
+            }
+
+            // Alert meter management
+            if (world.caught) {
+                world.alertMeter = 100;
+            } else {
+                if (!spotted) {
+                    world.alertMeter = Math.max(0, world.alertMeter - 25 * dt);
+                }
+                world.alertMeter = Math.min(120, world.alertMeter);
+                if (world.alertMeter >= 100) {
+                    world.caught = true;
+                    world.flashAmount = 1.0;
+                }
+            }
+
+            // Orb collection
+            if (!world.caught) {
+                for (var orb of world.orbs) {
+                    if (!orb.rescued && rectCollides(playerRect, orb)) {
+                        orb.rescued = true;
+                        world.rescued++;
+                        spawnParticles(world, orb.x + orb.width / 2, orb.y + orb.height / 2);
+                    }
+                }
+            }
+
+            updateParticles(world, dt);
+
+            // Win condition
+            if (!world.caught && world.rescued === world.orbs.length && rectCollides(playerRect, world.exitRect)) {
+                world.win = true;
+            }
+
+            world.flashAmount = Math.max(0, world.flashAmount - dt);
+        }
+
+        // drawing it all the hard way
+        function drawBackground(cameraX) {
+            ctx.fillStyle = COLORS.background;
+            ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+            
+            // Parallax layers
+            for (var layer = 0; layer < 3; layer++) {
+                var layerColor = `rgb(${10 + layer * 10}, ${25 + layer * 20}, ${20 + layer * 10})`;
+                var offset = cameraX * (0.15 * layer);
+                
+                for (var x = -200; x < LEVEL_WIDTH; x += 220) {
+                    var trunkX = x - offset;
+                    ctx.fillStyle = layerColor;
+                    ctx.fillRect(trunkX - cameraX, 260 + layer * 60, 30, 460);
+                }
+            }
+        }
+
+        function drawOrb(orb, cam, currentTime) {
+            if (orb.rescued) return;
+            
+            var centerX = orb.x + orb.width / 2 - cam;
+            var centerY = orb.y + orb.height / 2;
+            
+            // Pulse effect
+            var pulse = 0.5 + 0.5 * Math.sin(currentTime * ORB_PULSE_SPEED + orb.pulsePhase);
+            var currentGlowSize = ORB_GLOW_SIZE * (0.8 + 0.2 * pulse);
+            var currentOrbSize = ORB_SIZE * (0.9 + 0.1 * pulse);
+            
+            // Draw outer glow (multiple layers)
+            for (var i = 3; i > 0; i--) {
+                var radius = currentGlowSize * (i / 3);
+                var alpha = (80 + 40 * pulse) * (i / 3) * 0.6 / 255;
+                
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                ctx.fillStyle = COLORS.orbGlow + Math.floor(alpha * 255).toString(16).padStart(2, '0');
+                ctx.fill();
+            }
+            
+            // Draw orb core
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, Math.max(3, currentOrbSize * 0.6), 0, Math.PI * 2);
+            ctx.fillStyle = COLORS.orbCore;
+            ctx.fill();
+            
+            // Draw orb outer ring
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, currentOrbSize, 0, Math.PI * 2);
+            ctx.strokeStyle = COLORS.orb;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Draw arrow marker above orb
+            var markerY = centerY - currentGlowSize * 0.7 - 20;
+            var markerAlpha = (180 + 75 * pulse) / 255;
+            
+            ctx.fillStyle = COLORS.orbGlow + Math.floor(markerAlpha * 255).toString(16).padStart(2, '0');
+            ctx.beginPath();
+            ctx.moveTo(centerX, markerY - 10);
+            ctx.lineTo(centerX - 6, markerY - 2);
+            ctx.lineTo(centerX + 6, markerY - 2);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(centerX, markerY + 2, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function drawGame(world) {
+            // this is just one long art project basically
+            drawBackground(world.cameraX);
+            var cam = world.cameraX;
+
+            // Draw platforms
+            ctx.fillStyle = COLORS.platform;
+            for (var platform of world.platforms) {
+                ctx.fillRect(platform.x - cam, platform.y, platform.width, platform.height);
+            }
+
+            // Draw hiding spots as colored rectangles
+            for (var spot of world.hidingSpots) {
+                // Determine color based on type
+                if (spot.type === 'bush') {
+                    ctx.fillStyle = '#2d8659'; // Green for bushes
+                } else if (spot.type === 'rock' || spot.type === 'cave') {
+                    ctx.fillStyle = '#5a6a78'; // Grey for rocks
+                } else if (spot.type === 'log') {
+                    ctx.fillStyle = '#5c4a33'; // Brown for logs
+                } else {
+                    ctx.fillStyle = COLORS.bush; // Default
+                }
+                
+                // Draw rounded rectangle for better appearance
+                ctx.beginPath();
+                var radius = 8;
+                ctx.roundRect(spot.x - cam, spot.y, spot.width, spot.height, radius);
+                ctx.fill();
+            }
+
+            // Draw exit
+            ctx.fillStyle = COLORS.exit;
+            ctx.fillRect(world.exitRect.x - cam, world.exitRect.y, world.exitRect.width, world.exitRect.height);
+
+            // Draw enemies and vision cones
+            for (var enemy of world.enemies) {
+                // Draw vision cone for active enemies
+                if (enemy.active) {
+                    var cone = buildVisionCone(enemy);
+                    var conePoints = cone.map(([x, y]) => [x - cam, y]);
+                    
+                    ctx.fillStyle = enemy.type === 'guard' ? 
+                        'rgba(255, 210, 90, 0.23)' : 
+                        'rgba(120, 200, 255, 0.23)';
+                    ctx.beginPath();
+                    conePoints.forEach(([x, y], i) => {
+                        if (i === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    });
+                    ctx.closePath();
+                    ctx.fill();
+                }
+
+                // Draw enemy sprite or rectangle
+                var spriteDrawn = false;
+                
+                if (!enemy.active && enemyDeathFrames.right.length > 0) {
+                    // Death animation
+                    var orientation = enemy.dir >= 0 ? 'right' : 'left';
+                    var frames = enemyDeathFrames[orientation];
+                    if (frames && frames.length > 0) {
+                        var frame = frames[Math.min(enemy.deathAnimFrame, frames.length - 1)];
+                        ctx.drawImage(frame, enemy.x - cam, enemy.y);
+                        spriteDrawn = true;
+                    }
+                } else if (enemy.active && enemy.type === 'guard' && enemyWalkingFrames.right.length > 0) {
+                    // Walking animation for guards
+                    var orientation = enemy.dir >= 0 ? 'right' : 'left';
+                    var frames = enemyWalkingFrames[orientation];
+                    if (frames && frames.length > 0) {
+                        var frame = frames[enemy.animFrame % frames.length];
+                        ctx.drawImage(frame, enemy.x - cam, enemy.y);
+                        spriteDrawn = true;
+                    }
+                }
+                
+                // Fallback to rectangle (the boxy dudes)
+                if (!spriteDrawn) {
+                    var color = enemy.type === 'guard' ? COLORS.enemy : COLORS.drone;
+                    ctx.fillStyle = enemy.active ? color : color + '99';
+                    ctx.fillRect(enemy.x - cam, enemy.y, enemy.width, enemy.height);
+                }
+            }
+
+            // Draw orbs
+            var currentTime = performance.now() / 1000;
+            for (var orb of world.orbs) {
+                drawOrb(orb, cam, currentTime);
+            }
+
+            // Draw player
+            var spriteDrawn = false;
+            var orientation = world.facing >= 0 ? 'right' : 'left';
+            
+            if (world.caught && hurtFrames.right.length > 0) {
+                var frames = hurtFrames[orientation];
+                var animIndex = Math.floor((performance.now() * HURT_ANIM_FPS / 1000)) % frames.length;
+                ctx.drawImage(frames[animIndex], world.playerX - cam, world.playerY);
+                spriteDrawn = true;
+            } else if (world.attacking && attackFrames.right.length > 0) {
+                var frames = attackFrames[orientation];
+                var idx = Math.min(world.attackAnimFrame, frames.length - 1);
+                ctx.drawImage(frames[idx], world.playerX - cam, world.playerY);
+                spriteDrawn = true;
+            } else if (runFrames.right.length > 0) {
+                var frames = runFrames[orientation];
+                var frame = frames[world.animFrame % frames.length];
+                ctx.drawImage(frame, world.playerX - cam, world.playerY);
+                spriteDrawn = true;
+            }
+            
+            if (!spriteDrawn) {
+                ctx.fillStyle = COLORS.player;
+                ctx.fillRect(world.playerX - cam, world.playerY, PLAYER_WIDTH, PLAYER_HEIGHT);
+            }
+
+            // Draw particles
+            for (var p of world.particles) {
+                var alpha = p.life;
+                ctx.fillStyle = COLORS.orbGlow + Math.floor(alpha * 255).toString(16).padStart(2, '0');
+                ctx.beginPath();
+                ctx.arc(p.x - cam, p.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw UI
+            // Stealth bar
+            ctx.fillStyle = '#28323c';
+            ctx.fillRect(30, 30, 280, 22);
+            ctx.fillStyle = COLORS.stealth;
+            ctx.fillRect(30, 30, 280 * (world.visibility / 100), 22);
+            ctx.strokeStyle = '#c8c8c8';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(30, 30, 280, 22);
+
+            // Alert bar
+            ctx.fillStyle = '#281e1e';
+            ctx.fillRect(GAME_WIDTH - 340, 30, 300, 20);
+            ctx.fillStyle = COLORS.alert;
+            ctx.fillRect(GAME_WIDTH - 340, 30, 300 * (world.alertMeter / 100), 20);
+            ctx.strokeStyle = '#c8c8c8';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(GAME_WIDTH - 340, 30, 300, 20);
+
+            // Orbs collected text
+            ctx.fillStyle = '#dce6e6';
+            ctx.font = '26px Arial';
+            ctx.fillText(`Orbs: ${world.rescued}/${world.orbs.length}`, 30, 65);
+
+            // Controls hint
+            ctx.fillStyle = '#aab4be';
+            ctx.font = '20px Arial';
+            ctx.fillText("A/D move | SPACE jump | S hide | Click attack | R retry", 30, GAME_HEIGHT - 20);
+
+            // Alert warning overlay
+            if (world.alertMeter > 85) {
+                ctx.fillStyle = 'rgba(200, 50, 50, 0.2)';
+                ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+            }
+
+            // Flash effect
+            if (world.flashAmount > 0) {
+                ctx.fillStyle = `rgba(255, 80, 80, ${0.47 * world.flashAmount})`;
+                ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+            }
+
+            // Tutorial hints
+            if (world.isTutorial) {
+                for (var hint of world.tutorialHints) {
+                    ctx.font = '20px Arial';
+                    var textWidth = ctx.measureText(hint.text).width;
+                    
+                    ctx.fillStyle = '#0f1923';
+                    ctx.fillRect(hint.x - 8, hint.y - 8, textWidth + 16, 36);
+                    
+                    ctx.fillStyle = '#f0f0f0';
+                    ctx.fillText(hint.text, hint.x, hint.y + 12);
+                }
+            }
+        }
+
+        function drawTitle() {
+            drawBackground(0);
+            
+            ctx.fillStyle = '#dce6e6';
+            ctx.font = '54px Arial';
+            var titleText = "Whispers of the Canopy";
+            var titleWidth = ctx.measureText(titleText).width;
+            ctx.fillText(titleText, GAME_WIDTH / 2 - titleWidth / 2, GAME_HEIGHT / 2 - 80);
+            
+            ctx.font = '26px Arial';
+            var promptText = "Press ENTER to start";
+            var promptWidth = ctx.measureText(promptText).width;
+            ctx.fillText(promptText, GAME_WIDTH / 2 - promptWidth / 2, GAME_HEIGHT / 2);
+        }
+
+        function drawCaught() {
+            ctx.fillStyle = '#f07878';
+            ctx.font = '54px Arial';
+            var caughtText = "Caught!";
+            var caughtWidth = ctx.measureText(caughtText).width;
+            ctx.fillText(caughtText, GAME_WIDTH / 2 - caughtWidth / 2, GAME_HEIGHT / 2 - 60);
+            
+            ctx.font = '26px Arial';
+            var promptText = "Press R to retry";
+            var promptWidth = ctx.measureText(promptText).width;
+            ctx.fillText(promptText, GAME_WIDTH / 2 - promptWidth / 2, GAME_HEIGHT / 2);
+        }
+
+        function drawWin(world) {
+            var winText = world && world.isTutorial ? 
+                "Tutorial complete!" : 
+                "The forest is safe... for now";
+            var promptText = world && world.isTutorial ? 
+                "Press ENTER to begin the real mission" : 
+                "Press ENTER to play again";
+            
+            ctx.fillStyle = '#c8ffc8';
+            ctx.font = '54px Arial';
+            var winWidth = ctx.measureText(winText).width;
+            ctx.fillText(winText, GAME_WIDTH / 2 - winWidth / 2, GAME_HEIGHT / 2 - 60);
+            
+            ctx.font = '26px Arial';
+            var promptWidth = ctx.measureText(promptText).width;
+            ctx.fillText(promptText, GAME_WIDTH / 2 - promptWidth / 2, GAME_HEIGHT / 2);
+        }
+
+        function drawLoading() {
+            ctx.fillStyle = COLORS.background;
+            ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+            
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 36px Arial';
+            var loadingText = `Loading Sprites... ${spritesLoaded}/${totalSprites}`;
+            var textWidth = ctx.measureText(loadingText).width;
+            ctx.fillText(loadingText, GAME_WIDTH / 2 - textWidth / 2, GAME_HEIGHT / 2);
+            
+            // Draw loading bar
+            var barWidth = 400;
+            var barHeight = 30;
+            var barX = GAME_WIDTH / 2 - barWidth / 2;
+            var barY = GAME_HEIGHT / 2 + 40;
+            
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(barX, barY, barWidth, barHeight);
+            
+            ctx.fillStyle = COLORS.stealth;
+            var progress = spritesLoaded / totalSprites;
+            ctx.fillRect(barX + 2, barY + 2, (barWidth - 4) * progress, barHeight - 4);
+        }
+
+        // button/key listeners cuz we need them
+        document.addEventListener('keydown', (e) => {
+            // Normalize key to lowercase for consistency
+            var key = e.key.toLowerCase();
+            keys[key] = true;
+            keys[e.key] = true; // Also store original case
+
+            // Prevent default for game controls
+            if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'a', 'd', 's', 'w'].includes(e.key)) {
+                e.preventDefault();
+            }
+
+            if (gameState === 'title' && e.key === 'Enter') {
+                worldState = resetWorld(null, !tutorialCompleted);
+                gameState = 'playing';
+                stateTimer = 0;
+            } else if (gameState === 'playing' && e.key === ' ') {
+                if (worldState) {
+                    worldState.jumpBuffer = JUMP_BUFFER;
+                }
+            } else if (gameState === 'caught' && (e.key === 'r' || e.key === 'R')) {
+                worldState = resetWorld(null, worldState ? worldState.isTutorial : false);
+                gameState = 'playing';
+                stateTimer = 0;
+            } else if (gameState === 'win' && e.key === 'Enter') {
+                if (worldState && worldState.isTutorial && !tutorialCompleted) {
+                    tutorialCompleted = true;
+                    worldState = resetWorld();
+                } else {
+                    worldState = resetWorld(null, !tutorialCompleted);
+                }
+                gameState = 'playing';
+                stateTimer = 0;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            // Clear both lowercase and original case
+            var key = e.key.toLowerCase();
+            keys[key] = false;
+            keys[e.key] = false;
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (gameState === 'playing') {
+                mouseClicked = true;
+            }
+        });
+
+        canvas.addEventListener('click', (e) => {
+            if (gameState === 'title') {
+                worldState = resetWorld(null, !tutorialCompleted);
+                gameState = 'playing';
+                stateTimer = 0;
+            }
+        });
+
+        // the forever loop
+        function gameLoop(currentTime) {
+            // Calculate delta time
+            var dt = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+            
+            // Cap delta time to prevent large jumps
+            var maxDt = (1.0 / FPS) * 2;
+            dt = Math.min(dt, maxDt);
+
+            // Update game state
+            if (gameState === 'loading') {
+                drawLoading();
+            } else if (gameState === 'title') {
+                drawTitle();
+            } else if (gameState === 'playing') {
+                if (worldState) {
+                    updatePlayState(worldState, dt);
+                    drawGame(worldState);
+                    
+                    if (worldState.caught) {
+                        gameState = 'caught';
+                        stateTimer = 0;
+                    }
+                    if (worldState.win) {
+                        gameState = 'win';
+                        stateTimer = 0;
+                    }
+                }
+            } else if (gameState === 'caught') {
+                if (worldState) {
+                    drawGame(worldState);
+                    drawCaught();
+                }
+                
+                stateTimer += dt;
+                if (stateTimer >= 1.8) {
+                    worldState = resetWorld(null, worldState ? worldState.isTutorial : false);
+                    gameState = 'playing';
+                    stateTimer = 0;
+                }
+            } else if (gameState === 'win') {
+                if (worldState) {
+                    drawGame(worldState);
+                    drawWin(worldState);
+                }
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // boot up and hope nothing crashes
+        // Wait for DOM to be fully loaded
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log('dom ready, guess we start now');
+            console.log('canvas thing:', canvas);
+            console.log('context thing:', ctx);
+            
+            initSprites();
+            
+            // Fallback: Force start after 5 seconds if loading fails
+            setTimeout(() => {
+                if (gameState === 'loading') {
+                    console.warn('ok 5 seconds passed so im giving up and starting anyway');
+                    gameState = 'title';
+                }
+            }, 5000);
+            
+            // Start game loop
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        });
+    </script>
+</body>
+</html>

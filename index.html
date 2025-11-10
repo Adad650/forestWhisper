@@ -140,18 +140,9 @@
         let worldState = null;
         let tutorialCompleted = false;
         let stateTimer = 0;
-        let lastTime = 0;
-        let lastRenderTime = 0;
-        let animationFrameId = null;
+        let lastTime = 0; // Will be initialized in game loop
         let spritesLoaded = 0;
         const totalSprites = 6;
-        
-        // Animation speeds (frames per second)
-        // Using existing constants from above
-        
-        // Game loop constants
-        const MAX_FRAME_SKIP = 5;
-        const STEP = 1/60; // 60 FPS
 
         // === UTILITY CLASSES ===
         class SeededRandom {
@@ -1383,38 +1374,30 @@
 
         // === GAME LOOP ===
         let accumulator = 0;
-        lastTime = performance.now();
-        lastRenderTime = lastTime;
+        const timeStep = 1/60; // Fixed timestep for 60 FPS
+        lastTime = performance.now(); // Initialize lastTime
         
-        function gameLoop(timestamp) {
-            // Calculate time since last frame in seconds
-            let frameTime = (timestamp - lastRenderTime) / 1000;
-            lastRenderTime = timestamp;
+        function gameLoop(currentTime) {
+            // Calculate delta time and cap it
+            let dt = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
             
-            // Cap the frame time to avoid spiral of death
-            frameTime = Math.min(frameTime, 0.1);
+            // Prevent spiral of death
+            dt = Math.min(dt, 0.25);
             
-            // Update animation states with precise timing
-            if (worldState) {
-                updateAnimationStates(worldState, frameTime);
+            // Add to accumulator
+            accumulator += dt;
+            
+            // Fixed timestep updates
+            while (accumulator >= timeStep) {
+                updateGame(timeStep);
+                accumulator -= timeStep;
             }
             
-            // Update game logic at fixed timestep
-            accumulator += frameTime;
-            let steps = 0;
+            // Render at full framerate
+            render();
             
-            while (accumulator >= STEP && steps < MAX_FRAME_SKIP) {
-                if (gameState === 'playing' && worldState) {
-                    updatePlayState(worldState, STEP);
-                }
-                accumulator -= STEP;
-                steps++;
-            }
-            
-            // Always render, using the accumulator for interpolation
-            render(accumulator / STEP);
-            
-            animationFrameId = requestAnimationFrame(gameLoop);
+            requestAnimationFrame(gameLoop);
         }
         
         function updateGame(dt) {
@@ -1446,60 +1429,9 @@
             }
         }
         
-        function updateAnimationStates(world, dt) {
-            // Update animation timers and frame counters
-            if (world.hurt) {
-                world.hurtTime += dt;
-                const hurtDuration = HURT_FRAME_COUNT / HURT_ANIM_FPS;
-                if (world.hurtTime >= hurtDuration) {
-                    world.hurt = false;
-                    world.hurtTime = 0;
-                }
-                world.hurtFrame = Math.min(
-                    Math.floor(world.hurtTime * HURT_ANIM_FPS),
-                    HURT_FRAME_COUNT - 1
-                );
-            }
-            
-            if (world.attacking) {
-                world.attackAnimTime += dt;
-                const attackDuration = ATTACK_FRAME_COUNT / ATTACK_ANIM_FPS;
-                if (world.attackAnimTime >= attackDuration) {
-                    world.attacking = false;
-                    world.attackAnimTime = 0;
-                }
-                world.attackAnimFrame = Math.min(
-                    Math.floor(world.attackAnimTime * ATTACK_ANIM_FPS),
-                    ATTACK_FRAME_COUNT - 1
-                );
-            }
-            
-            // Update run animation - using 16 frames at 18 FPS (from constants)
-            if (Math.abs(world.playerVelX) > 10) {
-                world.animTime += dt;
-                // Calculate frame based on time and animation speed
-                const frameFloat = (world.animTime * RUN_ANIM_FPS) % RUN_FRAME_COUNT;
-                world.animFrame = Math.floor(frameFloat);
-                world.animProgress = frameFloat % 1; // Store sub-frame progress for interpolation
-                
-                // Debug: Uncomment to verify animation frame progression
-                // console.log(`Frame: ${world.animFrame}, Progress: ${world.animProgress.toFixed(2)}`);
-            } else {
-                // Reset to first frame when not moving
-                world.animTime = 0;
-                world.animFrame = 0;
-                world.animProgress = 0;
-            }
-        }
-        
-        function render(alpha) {
+        function render() {
             // Clear the canvas with a single operation
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Enable image smoothing for smoother rendering
-            ctx.imageSmoothingEnabled = true;
-            ctx.webkitImageSmoothingEnabled = true;
-            ctx.mozImageSmoothingEnabled = true;
             
             // Render appropriate screen
             if (gameState === 'loading') {
@@ -1508,19 +1440,14 @@
                 drawTitle();
             } else if (gameState === 'playing' || gameState === 'caught' || gameState === 'win') {
                 if (worldState) {
-                    // Store current context state
-                    ctx.save();
+                    // Enable image smoothing for smoother rendering
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.webkitImageSmoothingEnabled = true;
+                    ctx.mozImageSmoothingEnabled = true;
                     
-                    // Apply subpixel rendering for smoother movement
-                    ctx.translate(0.5, 0.5);
-                    
-                    // Render the game
+                    // Render the game with interpolation
                     drawGame(worldState);
                     
-                    // Restore context state
-                    ctx.restore();
-                    
-                    // Draw UI elements on top
                     if (gameState === 'caught') {
                         drawCaught();
                     } else if (gameState === 'win') {
@@ -1537,22 +1464,19 @@
             console.log('Canvas:', canvas);
             console.log('Context:', ctx);
             
-            // Initialize game state
-            gameState = 'title';
-            worldState = resetWorld(null, !tutorialCompleted);
+            initSprites();
+            
+            // Fallback: Force start after 5 seconds if loading fails
+            setTimeout(() => {
+                if (gameState === 'loading') {
+                    console.warn('Sprite loading timeout - forcing game start');
+                    gameState = 'title';
+                }
+            }, 5000);
             
             // Start game loop
             lastTime = performance.now();
-            lastRenderTime = lastTime;
-            
-            // Start with title screen
-            drawTitle();
-            
-            // Start the game loop
             requestAnimationFrame(gameLoop);
-            
-            // Initialize sprites
-            initSprites();
         });
     </script>
 </body>

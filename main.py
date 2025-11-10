@@ -1,117 +1,38 @@
-# wrote this after school so sorry if it's messy
-# Import the stuff we need
 import math
 import random
+import sys
+
 import pygame
 
-# Start up pygame
+# Initialization
 pygame.init()
-print("booting forest thingy... hope it runs")
+width, height = 1280, 720
+levelWidth = 4200
+fps = 60
+gravity = 2400
+jumpForce = 900
+coyoteTime = 0.14
+jumpBuffer = 0.16
+walkSpeed = 240
+runSpeed = 340
+playerSize = (63, 120)
+backgroundColor = (8, 14, 22)
+playerColor = (150, 230, 255)
+playerGlow = (40, 120, 140)
+enemyColor = (40, 40, 50)
+droneColor = (80, 110, 130)
+stealthBarColor = (60, 200, 180)
+alertColor = (220, 80, 70)
+grassColor = (25, 70, 50)
+bushColor = (35, 80, 55)
+logColor = (70, 50, 30)
+rockColor = (55, 65, 75)
+rescueColor = (200, 255, 180)
+exitColor = (60, 200, 120)
+orbColor = (180, 220, 255)
+orbGlowColor = (100, 180, 255)
+orbCoreColor = (220, 240, 255)
 
-# Game settings (mostly vibes)
-SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 720
-FPS = 60
-
-# Player settings (fast math)
-PLAYER_JUMP = 900
-PLAYER_SPEED = 240
-PLAYER_RUN_SPEED = 340
-PLAYER_SIZE = (63, 120)
-GRAVITY = 2400
-
-# Colors (yup basic rgb)
-BLACK = (0, 0, 0)
-WHITE = (255, 255, 255)
-BLUE = (0, 0, 255)
-GREEN = (0, 255, 0)
-RED = (255, 0, 0)
-random_notes = []  # maybe i save ideas in here later
-
-# Make the game window (aka blank canvas)
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Forest Game")
-clock = pygame.time.Clock()
-
-# Player class aka blue rectangle hero
-class Player:
-    def __init__(self):
-        self.x = 100
-        self.y = 100
-        self.speed = 5
-        self.jump_power = 15
-        self.velocity_y = 0
-        self.on_ground = False
-        self.rect = pygame.Rect(self.x, self.y, 50, 80)
-    
-    def update(self):
-        # Move left/right (nothing fancy)
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-            self.x -= self.speed
-        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-            self.x += self.speed
-        
-        # Jump
-        if (keys[pygame.K_SPACE] or keys[pygame.K_UP] or keys[pygame.K_w]) and self.on_ground:
-            self.velocity_y = -self.jump_power
-            self.on_ground = False
-        
-        # Apply gravity
-        self.velocity_y += 0.8
-        if self.velocity_y > 10:
-            self.velocity_y = 10
-        
-        self.y += self.velocity_y
-        
-        # Simple ground collision (just one floor lol)
-        if self.y > SCREEN_HEIGHT - 100:
-            self.y = SCREEN_HEIGHT - 100
-            self.velocity_y = 0
-            self.on_ground = True
-        
-        # Update rectangle for collision
-        self.rect.x = self.x
-        self.rect.y = self.y
-    
-    def draw(self, surface):
-        pygame.draw.rect(surface, BLUE, self.rect)
-
-# Game loop
-def main():
-    player = Player()
-    running = True
-    print("entering game loop... good luck!")
-    
-    while running:
-        # Handle events (spam buttons)
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            
-            # Restart game with R key
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r:
-                    player = Player()
-        
-        # Update
-        player.update()
-        
-        # Draw
-        screen.fill(WHITE)
-        pygame.draw.rect(screen, GREEN, (0, SCREEN_HEIGHT - 50, SCREEN_WIDTH, 50))  # Ground
-        player.draw(screen)
-        
-        # Update display
-        pygame.display.flip()
-        clock.tick(FPS)
-    
-    pygame.quit()
-
-if __name__ == "__main__":
-    main()
-
-# these templates are just bushes because thats what we wanted
 hidingSpotTemplates = [
     {"size": (110, 70), "strength": 0.3, "color": bushColor, "type": "bush", "solid": False},
     {"size": (120, 80), "strength": 0.2, "color": bushColor, "type": "bush", "solid": False},
@@ -119,7 +40,6 @@ hidingSpotTemplates = [
     {"size": (150, 80), "strength": 0.2, "color": bushColor, "type": "bush", "solid": False},
 ]
 
-# animation numbers i pulled from the sprite sheet
 runFrameCount = 16
 attackFrameCount = 7
 runAnimFps = 18
@@ -152,7 +72,6 @@ smallFont = pygame.font.SysFont("arial", 20)
 
 
 def loadFrames(path, frameCount):
-    print(f"cutting up {path} into {frameCount} frames")
     sheet = pygame.image.load(path).convert_alpha()
     frameWidth = sheet.get_width() // max(1, frameCount)
     frames = []
@@ -168,7 +87,7 @@ def loadFrames(path, frameCount):
 
 
 def loadEnemyFrames(path, frameCount, targetSize):
-    """loads enemy frames (like, hopefully)"""
+    """Load enemy frames with custom target size."""
     try:
         sheet = pygame.image.load(path).convert_alpha()
         frameWidth = sheet.get_width() // max(1, frameCount)
@@ -206,7 +125,6 @@ def removeWhitePixels(surface, tolerance=4):
 
 def loadBushSprites(path, columns=3, rows=3):
     try:
-        print("loading bush sprites... crossing fingers")
         sheet = pygame.image.load(path).convert()
     except Exception:
         return []
@@ -235,7 +153,7 @@ def scaleBushSprite(width, height, rng):
 
 
 def loadAnimalSprites(path, targetSize=(24, 24)):
-    """tries to grab animal sprites, no fancy tools here"""
+    """Load animal sprites from a sprite sheet or single image."""
     try:
         sheet = pygame.image.load(path).convert_alpha()
         sheetWidth = sheet.get_width()
@@ -312,7 +230,6 @@ orbPulseSpeed = 3.0
 
 
 def computePlayerHitbox():
-    print("calculating hitbox stuff the hard way")
     offsets = {"right": (0, 0), "left": (0, 0)}
     hitboxWidth, hitboxHeight = playerSize
     baseFrames = playerRunFrames or playerAttackFrames or playerHurtFrames
@@ -338,7 +255,6 @@ playerHitboxSize, playerSpriteOffsets = computePlayerHitbox()
 
 
 def makePlatforms(rng):
-    print("making platforms the lazy way")
     floorRect = pygame.Rect(0, 640, levelWidth, 120)
     mainPlatforms = [floorRect]
 
@@ -370,7 +286,6 @@ def makePlatforms(rng):
 
 
 def makeHidingSpots(rng, platforms):
-    print("making hiding spots (hope they arent floating)")
     spots = []
     count = rng.randint(8, 12)
 
@@ -421,7 +336,6 @@ def makeHidingSpots(rng, platforms):
 
 
 def makeOrbs(rng, platforms):
-    print("dropping orbs around at random")
     orbs = []
     perches = [p for p in platforms if p.height <= 20 and p.width > 40 and p.top <= 620]
     perches = perches or [platforms[0]]
@@ -446,7 +360,6 @@ def makeOrbs(rng, platforms):
 
 
 def makeEnemies(rng, platforms):
-    print("spawning enemies because stealth needs danger")
     enemies = []
     perches = [p for p in platforms if p.height <= 20 and p.width > 80]
     attempts = 0
@@ -510,7 +423,6 @@ def makeEnemies(rng, platforms):
 
 
 def makeTutorialLevel(rng):
-    print("building the tutorial level by hand-ish")
     floorRect = pygame.Rect(0, 640, levelWidth, 120)
     platforms = [
         floorRect,
@@ -577,7 +489,6 @@ def makeTutorialLevel(rng):
 
 
 def resetWorld(seed=None, tutorial=False):
-    # resetting everything because i probably got caught
     rng = random.Random(seed)
     playerRect = pygame.Rect(80, 640 - playerHitboxSize[1], playerHitboxSize[0], playerHitboxSize[1])
 
@@ -631,12 +542,10 @@ def resetWorld(seed=None, tutorial=False):
 
 
 def lineBlocked(start, end, blockers):
-    # lazy helper
     return any(block.clipline(start, end) for block in blockers)
 
 
 def pointInPoly(point, polygon):
-    # math i googled forever ago
     px, py = point
     inside = False
     j = len(polygon) - 1
@@ -653,7 +562,6 @@ def pointInPoly(point, polygon):
 
 
 def buildVisionCone(enemy):
-    # math triangles bc guards need eyes
     rect = enemy["rect"]
     facing = 1 if enemy["dir"] >= 0 else -1
     eyeX = rect.centerx
@@ -666,7 +574,6 @@ def buildVisionCone(enemy):
 
 
 def updateParticles(world, dt):
-    # particle physics (kinda)
     for particle in world["particles"]:
         particle["pos"][0] += particle["dir"][0] * 60 * dt
         particle["pos"][1] += particle["dir"][1] * 60 * dt
@@ -675,7 +582,6 @@ def updateParticles(world, dt):
 
 
 def spawnParticles(world, rect):
-    # sparkle maker
     for _ in range(8):
         angle = random.uniform(0, math.tau)
         world["particles"].append(
@@ -688,7 +594,6 @@ def spawnParticles(world, rect):
 
 
 def updatePlayState(world, keys, events, dt):
-    # heads up: this whole thing is one giant blob on purpose
     # Input handling
     world["jumpBuffer"] = max(0.0, world["jumpBuffer"] - dt)
     world["coyoteTimer"] = max(0.0, world["coyoteTimer"] - dt)
@@ -915,7 +820,6 @@ def updatePlayState(world, keys, events, dt):
 
 
 def drawBackground(surface, cameraX):
-    # painting parallax trees by hand because why not
     surface.fill(backgroundColor)
     for layer in range(3):
         layerColor = (10 + layer * 10, 25 + layer * 20, 20 + layer * 10)
@@ -926,7 +830,7 @@ def drawBackground(surface, cameraX):
 
 
 def blitPlayerSprite(surface, sprite, world, orientation, cam):
-    """draws the player sprite if it doesn't explode"""
+    """Blit player sprite with safe error handling."""
     try:
         if sprite is None:
             return False
@@ -944,8 +848,7 @@ def blitPlayerSprite(surface, sprite, world, orientation, cam):
 
 
 def drawOrb(surface, orb, cam, time):
-    """makes the glowy orb thing do its pulsing stuff"""
-    # hi glowy friend
+    """Draw an orb with pulsing glow effect and visual marker."""
     if orb["rescued"]:
         return
     
@@ -1004,7 +907,7 @@ def drawOrb(surface, orb, cam, time):
 
 
 def drawGame(surface, world):
-    # big drawing pile
+    # Rendering
     drawBackground(surface, world["cameraX"])
     cam = world["cameraX"]
 
@@ -1163,7 +1066,6 @@ def drawGame(surface, world):
 
 
 def drawTitle(surface):
-    # TODO: add cooler art here someday
     drawBackground(surface, 0)
     titleText = bigFont.render("Whispers of the Canopy", True, (220, 240, 230))
     promptText = font.render("Press ENTER to start", True, (180, 190, 190))
@@ -1172,7 +1074,6 @@ def drawTitle(surface):
 
 
 def drawCaught(surface):
-    # red screen of shame
     caughtText = bigFont.render("Caught!", True, (240, 120, 120))
     promptText = font.render("Press R to retry or wait for restart...", True, (230, 230, 230))
     noteText = smallFont.render("Visibility blew your cover.", True, (210, 210, 210))
@@ -1182,7 +1083,6 @@ def drawCaught(surface):
 
 
 def drawWin(surface, world):
-    # cheesy win text
     if world and world.get("isTutorial"):
         winText = bigFont.render("Tutorial complete!", True, (200, 255, 200))
         promptText = font.render("Press ENTER to begin the real mission", True, (230, 230, 230))
@@ -1202,9 +1102,7 @@ worldState = None
 gameState = "title"
 stateTimer = 0.0
 
-# states are just strings because why not
-print("loop time, dont crash now")
-# Game loop (forever)
+# Game loop
 while True:
     dt_raw = clock.tick(fps) / 1000.0
     # Cap delta time aggressively to prevent large jumps when window loses/gains focus
@@ -1220,7 +1118,6 @@ while True:
 
     keyState = pygame.key.get_pressed()
 
-    # TODO: maybe use a real state machine someday
     if gameState == "title":
         if any(evt.type == pygame.KEYDOWN and evt.key == pygame.K_RETURN for evt in eventList):
             worldState = resetWorld(tutorial=not tutorialCompleted)
@@ -1252,7 +1149,7 @@ while True:
             gameState = "playing"
             stateTimer = 0.0
 
-    # rendering stuff so the screen isnt blank
+    # Rendering - always render to ensure player is visible
     if gameState == "title":
         drawTitle(screen)
     else:

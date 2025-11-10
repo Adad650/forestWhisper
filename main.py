@@ -1,21 +1,8 @@
 import math
-import os
 import random
 import sys
 
 import pygame
-
-
-def resource_path(relative_path):
-    """Get absolute path to resource, works for dev and for PyInstaller"""
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        # If not running as a PyInstaller bundle, use the directory where main.py is located
-        base_path = os.path.dirname(os.path.abspath(__file__))
-    
-    return os.path.join(base_path, relative_path)
 
 # Initialization
 pygame.init()
@@ -33,7 +20,7 @@ backgroundColor = (8, 14, 22)
 playerColor = (150, 230, 255)
 playerGlow = (40, 120, 140)
 enemyColor = (40, 40, 50)
-platformColor = (25, 70, 35)
+droneColor = (80, 110, 130)
 stealthBarColor = (60, 200, 180)
 alertColor = (220, 80, 70)
 grassColor = (25, 70, 50)
@@ -42,7 +29,6 @@ logColor = (70, 50, 30)
 rockColor = (55, 65, 75)
 rescueColor = (200, 255, 180)
 exitColor = (60, 200, 120)
-animalMarkerColor = (255, 235, 150)
 
 hidingSpotTemplates = [
     {"size": (140, 70), "strength": 0.25, "color": grassColor, "type": "grass", "solid": False},
@@ -71,12 +57,6 @@ animalCount = 4
 enemyTargetCount = 5
 bushSheetColumns = 3
 bushSheetRows = 3
-enemyFrameCount = 9
-enemyAnimFps = 12
-enemySpriteSize = (42, 80)
-enemyDeathFrameCount = 8
-enemyDeathAnimFps = 10
-animalAnimFps = 6
 
 screen = pygame.display.set_mode((width, height))
 pygame.display.set_caption("Whispers of the Canopy")
@@ -86,12 +66,11 @@ bigFont = pygame.font.SysFont("arial", 54)
 smallFont = pygame.font.SysFont("arial", 20)
 
 
-def loadFrames(path, frameCount, targetSize=None):
+def loadFrames(path, frameCount):
     sheet = pygame.image.load(path).convert_alpha()
     frameWidth = sheet.get_width() // max(1, frameCount)
     frames = []
-    if targetSize is None:
-        targetSize = (playerSize[0], playerSize[1])
+    targetSize = (playerSize[0], playerSize[1])
     for index in range(frameCount):
         frameSurf = sheet.subsurface(pygame.Rect(index * frameWidth, 0, frameWidth, sheet.get_height()))
         scaledSurf = pygame.transform.smoothscale(frameSurf, targetSize)
@@ -102,9 +81,9 @@ def loadFrames(path, frameCount, targetSize=None):
     }
 
 
-def safeLoadFrames(path, frameCount, targetSize=None):
+def safeLoadFrames(path, frameCount):
     try:
-        return loadFrames(path, frameCount, targetSize)
+        return loadFrames(path, frameCount)
     except Exception:
         return None
 
@@ -150,88 +129,10 @@ def scaleBushSprite(width, height, rng):
     return pygame.transform.scale(baseSprite, (width, height)).convert_alpha()
 
 
-def loadRockSprite(path):
-    try:
-        surface = pygame.image.load(path).convert()
-    except Exception:
-        return None
-    surface.set_colorkey(surface.get_at((0, 0)))
-    return removeWhitePixels(surface.convert_alpha())
-
-
-def scaleRockSprite(width, height):
-    if not rockSprite:
-        return None
-    targetSize = (max(1, int(width)), max(1, int(height)))
-    return pygame.transform.smoothscale(rockSprite, targetSize)
-
-
-def loadAnimalVariants(path):
-    try:
-        sheet = pygame.image.load(path).convert_alpha()
-    except Exception:
-        return []
-
-    mask = pygame.mask.from_surface(sheet)
-    rects = mask.get_bounding_rects()
-    frames = [rect for rect in rects if rect.width >= 10 and rect.height >= 10]
-    frames.sort(key=lambda r: (r.centery, r.x))
-
-    rowThreshold = 8
-    rows = []
-    for rect in frames:
-        assigned = False
-        for row in rows:
-            if abs(rect.centery - row["centery"]) <= rowThreshold:
-                row["rects"].append(rect)
-                row["centery"] = (row["centery"] * (len(row["rects"]) - 1) + rect.centery) / len(row["rects"])
-                assigned = True
-                break
-        if not assigned:
-            rows.append({"centery": rect.centery, "rects": [rect]})
-
-    groups = []
-    gapThreshold = 6
-    for row in rows:
-        sortedRects = sorted(row["rects"], key=lambda r: r.x)
-        current = []
-        prevRect = None
-        for rect in sortedRects:
-            if not current or rect.x - prevRect.x <= gapThreshold:
-                current.append(rect)
-            else:
-                if current:
-                    groups.append(current)
-                current = [rect]
-            prevRect = rect
-        if current:
-            groups.append(current)
-
-    variants = []
-    for rectsGroup in groups:
-        rectsGroup = sorted(rectsGroup, key=lambda r: r.x)
-        rightFrames = [sheet.subsurface(rect).copy() for rect in rectsGroup]
-        leftFrames = [pygame.transform.flip(frame, True, False) for frame in rightFrames]
-        width = max(frame.get_width() for frame in rightFrames)
-        height = max(frame.get_height() for frame in rightFrames)
-        variants.append(
-            {"right": rightFrames, "left": leftFrames, "width": width, "height": height}
-        )
-    return variants
-
-
-def asset_path(filename):
-    return resource_path(os.path.join("assets", filename))
-
-
-playerRunFrames = safeLoadFrames(asset_path("RUN.png"), runFrameCount)
-playerAttackFrames = safeLoadFrames(asset_path("ATTACK.png"), attackFrameCount)
-playerHurtFrames = safeLoadFrames(asset_path("HURT.png"), hurtFrameCount)
-bushSprites = loadBushSprites(asset_path("BUSH.png"), bushSheetColumns, bushSheetRows)
-enemyWalkFrames = safeLoadFrames(asset_path("EnemyWalking.png"), enemyFrameCount, enemySpriteSize)
-enemyDeathFrames = safeLoadFrames(asset_path("EnemyDeath.png"), enemyDeathFrameCount, enemySpriteSize)
-animalVariants = loadAnimalVariants(asset_path("animals.png"))
-rockSprite = loadRockSprite(asset_path("rock.png"))
+playerRunFrames = safeLoadFrames("RUN.png", runFrameCount)
+playerAttackFrames = safeLoadFrames("ATTACK.png", attackFrameCount)
+playerHurtFrames = safeLoadFrames("HURT.png", hurtFrameCount)
+bushSprites = loadBushSprites("BUSH.png", bushSheetColumns, bushSheetRows)
 
 
 def computePlayerHitbox():
@@ -326,11 +227,7 @@ def makeHidingSpots(rng, platforms):
                 width,
                 height,
             )
-        sprite = None
-        if template["type"] == "bush":
-            sprite = scaleBushSprite(rect.width, rect.height, rng)
-        elif template["type"] == "rock":
-            sprite = scaleRockSprite(rect.width, rect.height)
+        sprite = scaleBushSprite(rect.width, rect.height, rng) if template["type"] == "bush" else None
         spots.append(
             {
                 "rect": rect,
@@ -353,27 +250,13 @@ def makeAnimals(rng, platforms):
     while len(animals) < animalCount and attempts < animalCount * 4:
         attempts += 1
         platform = rng.choice(perches)
-        variant = rng.choice(animalVariants) if animalVariants else None
-        scale = 1.4 if variant else 1.0
-        frameWidth = int((variant["width"] if variant else 24) * scale)
-        frameHeight = int((variant["height"] if variant else 24) * scale)
-        left = platform.left + 6
-        right = platform.right - frameWidth - 6
+        left = platform.left + 10
+        right = platform.right - 34
         if right <= left:
             continue
         x = rng.randint(left, right)
-        y = platform.top - frameHeight
-        rect = pygame.Rect(x, y, frameWidth, frameHeight)
-        animals.append(
-            {
-                "rect": rect,
-                "rescued": False,
-                "variant": variant,
-                "scale": scale,
-                "animTime": 0.0,
-                "animFrame": 0,
-            }
-        )
+        y = platform.top - 24
+        animals.append({"rect": pygame.Rect(x, y, 24, 24), "rescued": False})
 
     return animals
 
@@ -381,30 +264,46 @@ def makeAnimals(rng, platforms):
 def makeEnemies(rng, platforms):
     enemies = []
     perches = [p for p in platforms if p.height <= 20 and p.width > 80]
-    perches = perches or platforms
     attempts = 0
 
     while len(enemies) < enemyTargetCount and attempts < enemyTargetCount * 6:
         attempts += 1
-        platform = rng.choice(perches)
-        width, height = 42, 80
-        minX = platform.left
-        maxX = platform.right - width
-        if maxX <= minX:
-            continue
-        x = rng.randint(minX, maxX)
-        y = platform.top - height
-        roam = rng.randint(140, min(420, platform.width + 200))
-        pathLeft = max(0, x - roam // 2)
-        pathRight = min(levelWidth, pathLeft + roam)
-        pathLeft = max(0, pathRight - roam)
-        maxPos = pathRight - width
-        if maxPos <= pathLeft:
-            continue
-        x = max(pathLeft, min(x, maxPos))
-        speed = rng.randint(60, 110)
-        vision = (rng.randint(260, 330), rng.randint(150, 200))
-        enemyType = "guard"
+        isGuard = rng.random() < 0.65
+        if isGuard and perches:
+            platform = rng.choice(perches)
+            width, height = 42, 80
+            minX = platform.left
+            maxX = platform.right - width
+            if maxX <= minX:
+                continue
+            x = rng.randint(minX, maxX)
+            y = platform.top - height
+            roam = rng.randint(140, min(420, platform.width + 200))
+            pathLeft = max(0, x - roam // 2)
+            pathRight = min(levelWidth, pathLeft + roam)
+            pathLeft = max(0, pathRight - roam)
+            maxPos = pathRight - width
+            if maxPos <= pathLeft:
+                continue
+            x = max(pathLeft, min(x, maxPos))
+            speed = rng.randint(60, 110)
+            vision = (rng.randint(260, 330), rng.randint(150, 200))
+            enemyType = "guard"
+        else:
+            width, height = 48, 48
+            x = rng.randint(100, levelWidth - width - 100)
+            y = rng.randint(320, 460)
+            roam = rng.randint(220, 420)
+            pathLeft = max(0, x - roam // 2)
+            pathRight = min(levelWidth, pathLeft + roam)
+            pathLeft = max(0, pathRight - roam)
+            maxPos = pathRight - width
+            if maxPos <= pathLeft:
+                continue
+            x = max(pathLeft, min(x, maxPos))
+            speed = rng.randint(110, 160)
+            vision = (rng.randint(200, 280), rng.randint(130, 180))
+            enemyType = "drone"
 
         enemies.append(
             {
@@ -415,12 +314,6 @@ def makeEnemies(rng, platforms):
                 "vision": vision,
                 "type": enemyType,
                 "active": True,
-                "animTime": 0.0,
-                "animFrame": 0,
-                "dead": False,
-                "deathAnimTime": 0.0,
-                "deathAnimFrame": 0,
-                "spriteFacing": 1,
             }
         )
 
@@ -437,6 +330,7 @@ def makeTutorialLevel(rng):
         pygame.Rect(1180, 470, 220, 18),
         pygame.Rect(1500, 520, 220, 18),
     ]
+
     def bush(rect, strength=0.25):
         return {
             "rect": rect,
@@ -470,23 +364,9 @@ def makeTutorialLevel(rng):
     ]
 
     animals = [
-        {"rect": pygame.Rect(580, 480, 48, 48), "rescued": False},
-        {"rect": pygame.Rect(1250, 430, 48, 48), "rescued": False},
+        {"rect": pygame.Rect(580, 480, 24, 24), "rescued": False},
+        {"rect": pygame.Rect(1250, 430, 24, 24), "rescued": False},
     ]
-    for critter in animals:
-        variant = rng.choice(animalVariants) if animalVariants else None
-        scale = 1.4 if variant else 1.0
-        width = int((variant["width"] if variant else 24) * scale)
-        height = int((variant["height"] if variant else 24) * scale)
-        bottom = critter["rect"].bottom
-        centerx = critter["rect"].centerx
-        critter["rect"].width = width
-        critter["rect"].height = height
-        critter["rect"].midbottom = (centerx, bottom)
-        critter["variant"] = variant
-        critter["scale"] = scale
-        critter["animTime"] = 0.0
-        critter["animFrame"] = 0
 
     enemies = [
         {
@@ -497,12 +377,6 @@ def makeTutorialLevel(rng):
             "vision": (260, 150),
             "type": "guard",
             "active": True,
-            "animTime": 0.0,
-            "animFrame": 0,
-            "dead": False,
-            "deathAnimTime": 0.0,
-            "deathAnimFrame": 0,
-            "spriteFacing": 1,
         }
     ]
 
@@ -574,7 +448,6 @@ def resetWorld(seed=None, tutorial=False):
         "particles": [],
         "tutorialHints": levelData.get("tutorialHints", []),
         "isTutorial": tutorial,
-        "mouseAttackHeld": False,
     }
 
 
@@ -645,21 +518,7 @@ def updatePlayState(world, keys, events, dt):
     crouching = keys[pygame.K_s] or keys[pygame.K_DOWN]
     running = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
     jumpPressed = any(evt.type == pygame.KEYDOWN and evt.key == pygame.K_SPACE for evt in events)
-    leftButtons = {1, getattr(pygame, "BUTTON_LEFT", 1), 0}
-    attackPressed = False
-    for evt in events:
-        if evt.type == pygame.MOUSEBUTTONDOWN and getattr(evt, "button", 1) in leftButtons:
-            attackPressed = True
-        elif evt.type == pygame.KEYDOWN and evt.key in (pygame.K_f, pygame.K_LCTRL, pygame.K_RCTRL):
-            attackPressed = True
-        elif evt.type == pygame.FINGERDOWN:
-            attackPressed = True
-
-    mouseButtons = pygame.mouse.get_pressed()
-    leftDown = mouseButtons[0] if mouseButtons else False
-    if leftDown and not world.get("mouseAttackHeld", False):
-        attackPressed = True
-    world["mouseAttackHeld"] = leftDown
+    attackPressed = any(evt.type == pygame.MOUSEBUTTONDOWN and evt.button == 1 for evt in events)
     if jumpPressed:
         world["jumpBuffer"] = jumpBuffer
 
@@ -753,10 +612,9 @@ def updatePlayState(world, keys, events, dt):
     for spot in world["hidingSpots"]:
         if spot["solid"]:
             blockers.append(spot["rect"])
-        if spot.get("type") in ("bush", "rock") and world["playerRect"].colliderect(spot["rect"]):
+        if spot.get("type") == "bush" and world["playerRect"].colliderect(spot["rect"]):
             playerHidden = True
             hidingStrength = min(hidingStrength, spot["strength"])
-    blockers.extend(world["platforms"])
 
     targetVisibility = 85
     if crouching:
@@ -793,11 +651,6 @@ def updatePlayState(world, keys, events, dt):
             if world["attackRect"].colliderect(enemy["rect"]):
                 enemy["active"] = False
                 enemy["cone"] = []
-                if enemy["type"] == "guard":
-                    enemy["dead"] = True
-                    enemy["deathAnimTime"] = 0.0
-                    enemy["deathAnimFrame"] = 0
-                enemy["spriteFacing"] = 1 if enemy["dir"] >= 0 else -1
                 spawnParticles(world, enemy["rect"])
 
     spotted = False
@@ -805,11 +658,6 @@ def updatePlayState(world, keys, events, dt):
         if world["caught"]:
             break
         if not enemy.get("active", True):
-            if enemy["type"] == "guard" and enemy.get("dead") and enemyDeathFrames:
-                totalDeathFrames = len(enemyDeathFrames["right"]) or 1
-                enemy["deathAnimTime"] = enemy.get("deathAnimTime", 0.0) + dt
-                frame = int(enemy["deathAnimTime"] * enemyDeathAnimFps)
-                enemy["deathAnimFrame"] = min(frame, totalDeathFrames - 1)
             enemy["cone"] = []
             continue
 
@@ -818,16 +666,6 @@ def updatePlayState(world, keys, events, dt):
         if enemyRect.left < enemy["path"][0] or enemyRect.right > enemy["path"][1]:
             enemy["dir"] *= -1
             enemyRect.x = max(enemy["path"][0], min(enemyRect.x, enemy["path"][1] - enemyRect.width))
-
-        enemy["spriteFacing"] = 1 if enemy["dir"] >= 0 else -1
-
-        if enemy["type"] == "guard" and enemyWalkFrames:
-            totalEnemyFrames = len(enemyWalkFrames["right"]) or 1
-            enemy["animTime"] = enemy.get("animTime", 0.0) + dt
-            enemy["animFrame"] = int(enemy["animTime"] * enemyAnimFps) % totalEnemyFrames
-        else:
-            enemy["animTime"] = enemy.get("animTime", 0.0)
-            enemy["animFrame"] = enemy.get("animFrame", 0)
 
         conePoints = buildVisionCone(enemy)
         shiftedCone = [(x, y) for x, y in conePoints]
@@ -869,16 +707,10 @@ def updatePlayState(world, keys, events, dt):
     # Rescue logic
     if not world["caught"]:
         for critter in world["animals"]:
-            variant = critter.get("variant")
-            if not critter["rescued"]:
-                if variant:
-                    totalFrames = len(variant["right"]) or 1
-                    critter["animTime"] = critter.get("animTime", 0.0) + dt
-                    critter["animFrame"] = int(critter["animTime"] * animalAnimFps) % totalFrames
-                if world["playerRect"].colliderect(critter["rect"]):
-                    critter["rescued"] = True
-                    world["rescued"] += 1
-                    spawnParticles(world, critter["rect"])
+            if not critter["rescued"] and world["playerRect"].colliderect(critter["rect"]):
+                critter["rescued"] = True
+                world["rescued"] += 1
+                spawnParticles(world, critter["rect"])
 
     updateParticles(world, dt)
 
@@ -911,7 +743,7 @@ def drawGame(surface, world):
     cam = world["cameraX"]
 
     for platform in world["platforms"]:
-        pygame.draw.rect(surface, platformColor, (platform.x - cam, platform.y, platform.width, platform.height))
+        pygame.draw.rect(surface, (30, 40, 35), (platform.x - cam, platform.y, platform.width, platform.height))
 
     for spot in world["hidingSpots"]:
         sprite = spot.get("sprite")
@@ -926,78 +758,22 @@ def drawGame(surface, world):
 
     for enemy in world["enemies"]:
         rect = enemy["rect"]
-        drewSprite = False
-        spriteFacing = enemy.get("spriteFacing", 1)
-        orientation = "right" if spriteFacing >= 0 else "left"
-
-        if enemy["type"] == "guard":
-            spriteSet = None
-            if enemy.get("dead") and enemyDeathFrames:
-                spriteSet = enemyDeathFrames.get(orientation, [])
-                if spriteSet:
-                    frameIdx = min(enemy.get("deathAnimFrame", 0), len(spriteSet) - 1)
-                    sprite = spriteSet[frameIdx]
-                    spriteRect = sprite.get_rect()
-                    spriteRect.midbottom = (rect.centerx - cam, rect.bottom)
-                    surface.blit(sprite, spriteRect)
-                    drewSprite = True
-            elif enemyWalkFrames:
-                spriteSet = enemyWalkFrames.get(orientation, [])
-                if spriteSet:
-                    sprite = spriteSet[enemy.get("animFrame", 0) % len(spriteSet)]
-                    spriteRect = sprite.get_rect()
-                    spriteRect.midbottom = (rect.centerx - cam, rect.bottom)
-                    surface.blit(sprite, spriteRect)
-                    if not enemy.get("active", True):
-                        overlay = pygame.Surface(sprite.get_size(), pygame.SRCALPHA)
-                        overlay.fill((80, 80, 80, 140))
-                        surface.blit(overlay, spriteRect)
-                    drewSprite = True
-        if not drewSprite:
-            color = enemyColor
-            if not enemy.get("active", True):
-                color = tuple(min(255, c + 60) for c in color)
-            pygame.draw.rect(surface, color, (rect.x - cam, rect.y, rect.width, rect.height), border_radius=6)
-
+        color = enemyColor if enemy["type"] == "guard" else droneColor
+        if not enemy.get("active", True):
+            color = tuple(min(255, c + 60) for c in color)
+        pygame.draw.rect(surface, color, (rect.x - cam, rect.y, rect.width, rect.height), border_radius=6)
         if enemy.get("active", True):
             cone = enemy.get("cone")
             if cone:
                 conePoints = [(x - cam, y) for x, y in cone]
-                coneColor = (255, 210, 90, 60)
+                coneColor = (255, 210, 90, 60) if enemy["type"] == "guard" else (120, 200, 255, 60)
                 pygame.draw.polygon(visionSurface, coneColor, conePoints)
 
     surface.blit(visionSurface, (0, 0))
 
     for critter in world["animals"]:
-        if critter["rescued"]:
-            continue
-        variant = critter.get("variant")
-        drewSprite = False
-        if variant:
-            frames = variant.get("right", [])
-            if frames:
-                sprite = frames[critter.get("animFrame", 0) % len(frames)]
-                scale = critter.get("scale", 1.0)
-                if scale != 1.0:
-                    size = (int(sprite.get_width() * scale), int(sprite.get_height() * scale))
-                    sprite = pygame.transform.smoothscale(sprite, size)
-                spriteRect = sprite.get_rect()
-                spriteRect.midbottom = (critter["rect"].centerx - cam, critter["rect"].bottom)
-                surface.blit(sprite, spriteRect)
-                drewSprite = True
-        if not drewSprite:
+        if not critter["rescued"]:
             pygame.draw.circle(surface, rescueColor, (critter["rect"].centerx - cam, critter["rect"].centery), 10)
-
-        cx = critter["rect"].centerx - cam
-        oscillation = math.sin(pygame.time.get_ticks() / 400 + critter["rect"].x * 0.01) * 6
-        markerBottom = critter["rect"].top - 20 + oscillation
-        markerTop = markerBottom - 28
-        pygame.draw.line(surface, animalMarkerColor, (cx, markerTop), (cx, markerBottom), 3)
-        pygame.draw.polygon(
-            surface,
-            animalMarkerColor,
-            [(cx - 8, markerBottom), (cx + 8, markerBottom), (cx, markerBottom + 12)],
-        )
 
     spriteDrawn = False
     orientation = "right" if world["facing"] >= 0 else "left"

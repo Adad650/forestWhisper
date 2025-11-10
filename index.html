@@ -63,8 +63,13 @@
         const JUMP_BUFFER = 0.16;
         const WALK_SPEED = 240;
         const RUN_SPEED = 340;
-        const PLAYER_WIDTH = 63;
-        const PLAYER_HEIGHT = 120;
+        // Player constants
+        const PLAYER_WIDTH = 42;
+        const PLAYER_HEIGHT = 80;
+        // Hitbox is smaller than the sprite for better gameplay
+        const PLAYER_HITBOX_OFFSET_X = 6;  // Pixels from left/right
+        const PLAYER_HITBOX_OFFSET_TOP = 10; // Pixels from top
+        const PLAYER_HITBOX_OFFSET_BOTTOM = 4; // Pixels from bottom
         
         // Animation constants
         const RUN_FRAME_COUNT = 16;
@@ -135,9 +140,18 @@
         let worldState = null;
         let tutorialCompleted = false;
         let stateTimer = 0;
-        let lastTime = performance.now();
+        let lastTime = 0;
+        let lastRenderTime = 0;
+        let animationFrameId = null;
         let spritesLoaded = 0;
         const totalSprites = 6;
+        
+        // Animation speeds (frames per second)
+        // Using existing constants from above
+        
+        // Game loop constants
+        const MAX_FRAME_SKIP = 5;
+        const STEP = 1/60; // 60 FPS
 
         // === UTILITY CLASSES ===
         class SeededRandom {
@@ -639,7 +653,16 @@
             return inside;
         }
 
-        // === PARTICLE SYSTEM ===
+        function getPlayerHitbox(x, y) {
+            return {
+                x: x + PLAYER_HITBOX_OFFSET_X,
+                y: y + PLAYER_HITBOX_OFFSET_TOP,
+                width: PLAYER_WIDTH - (PLAYER_HITBOX_OFFSET_X * 2),
+                height: PLAYER_HEIGHT - PLAYER_HITBOX_OFFSET_TOP - PLAYER_HITBOX_OFFSET_BOTTOM
+            };
+        }
+
+        // PARTICLE SYSTEM =
         function spawnParticles(world, x, y) {
             for (let i = 0; i < 8; i++) {
                 const angle = Math.random() * Math.PI * 2;
@@ -702,71 +725,116 @@
 
             // Horizontal collision
             world.playerX += world.playerVelX * dt;
-            const playerRect = { x: world.playerX, y: world.playerY, width: PLAYER_WIDTH, height: PLAYER_HEIGHT };
+            playerRect = getPlayerHitbox(world.playerX, world.playerY);
             
             for (let platform of world.platforms) {
                 if (rectCollides(playerRect, platform)) {
                     if (world.playerVelX > 0) {
+                        // Moving right, hit left side of platform
                         world.playerX = platform.x - PLAYER_WIDTH;
                     } else if (world.playerVelX < 0) {
+                        // Moving left, hit right side of platform
                         world.playerX = platform.x + platform.width;
                     }
+                    // Update playerRect after position change
+                    playerRect = getPlayerHitbox(world.playerX, world.playerY);
                 }
             }
 
             // Vertical collision
             world.playerY += world.playerVelY * dt;
-            playerRect.x = world.playerX;
-            playerRect.y = world.playerY;
+            playerRect = getPlayerHitbox(world.playerX, world.playerY);
             world.onGround = false;
 
             for (let platform of world.platforms) {
                 if (rectCollides(playerRect, platform)) {
                     if (world.playerVelY > 0) {
+                        // Land on top of platform
                         world.playerY = platform.y - PLAYER_HEIGHT;
                         world.onGround = true;
                         world.playerVelY = 0;
                     } else if (world.playerVelY < 0) {
-                        world.playerY = platform.y + platform.height;
+                        // Hit bottom of platform
+                        world.playerY = platform.y + platform.height - PLAYER_HITBOX_OFFSET_TOP;
                         world.playerVelY = 0;
                     }
+                    // Update playerRect after position change
+                    playerRect = getPlayerHitbox(world.playerX, world.playerY);
                 }
             }
 
             if (world.onGround) world.coyoteTimer = COYOTE_TIME;
 
-            // Attack
-            if (mouseClicked && !world.attacking && world.attackCooldown <= 0) {
-                world.attacking = true;
-                world.attackCooldown = ATTACK_COOLDOWN;
-                world.attackAnimTime = 0;
-                world.attackAnimFrame = 0;
-                mouseClicked = false;
+            // Attack state is now handled directly in the mousedown event
+
+            // === ANIMATION STATE MACHINE ===
+            // Smooth movement detection with some threshold
+            const moving = Math.abs(world.playerVelX) > 10; // Reduced threshold for smoother transitions
+            
+            // Store previous positions for interpolation
+            world.prevPlayerX = world.prevPlayerX || world.playerX;
+            world.prevPlayerY = world.prevPlayerY || world.playerY;
+            
+            // Handle attack cooldown
+            if (world.attackCooldown > 0) {
+                world.attackCooldown -= dt;
             }
 
-            // Animation
-            const moving = Math.abs(world.playerVelX) > 60;
-            if (runFrames.right.length > 0) {
-                if (moving) {
-                    world.animTime += dt;
-                    world.animFrame = Math.floor(world.animTime * RUN_ANIM_FPS) % runFrames.right.length;
-                } else {
-                    world.animTime = 0;
-                    world.animFrame = 0;
+            // Animation state priority: Hurt > Attack > Run > Idle
+            if (world.hurt) {
+                // Hurt animation - play once then return to previous state
+                world.hurtTime += dt;
+                const frameFloat = world.hurtTime * HURT_ANIM_FPS;
+                world.hurtFrame = Math.min(
+                    Math.floor(frameFloat),
+                    hurtFrames.right.length - 1
+                );
+                
+                if (world.hurtTime >= (hurtFrames.right.length / HURT_ANIM_FPS)) {
+                    world.hurt = false;
+                    world.hurtTime = 0;
+                    world.hurtFrame = 0;
                 }
-            }
-
-            if (world.attacking) {
+            } 
+            else if (world.attacking) {
+                // Attack animation - play once then return to idle/run
+                const totalFrames = 7;
+                const attackDuration = totalFrames / ATTACK_ANIM_FPS;
+                
                 world.attackAnimTime += dt;
-                const currentFrame = Math.floor(world.attackAnimTime * ATTACK_ANIM_FPS);
-                if (currentFrame >= attackFrames.right.length) {
+                const attackFrameFloat = (world.attackAnimTime / attackDuration) * totalFrames;
+                world.attackAnimFrame = Math.min(
+                    Math.floor(attackFrameFloat),
+                    totalFrames - 1
+                );
+                
+                // End attack when animation completes
+                if (world.attackAnimTime >= attackDuration) {
                     world.attacking = false;
                     world.attackAnimTime = 0;
                     world.attackAnimFrame = 0;
-                } else {
-                    world.attackAnimFrame = currentFrame;
+                    world.attackRect = null;
                 }
+            } 
+            else if (moving) {
+                // Running animation - use floating point for smoother animation
+                world.animTime += dt;
+                const frameFloat = world.animTime * RUN_ANIM_FPS;
+                world.animFrame = Math.floor(frameFloat) % runFrames.right.length;
+                
+                // Store animation progress for interpolation
+                world.animProgress = frameFloat % 1;
+            } 
+            else {
+                // Idle - first frame of running animation
+                world.animTime = 0;
+                world.animFrame = 0;
+                world.animProgress = 0;
             }
+            
+            // Store previous positions for interpolation
+            world.prevPlayerX = world.playerX;
+            world.prevPlayerY = world.playerY;
 
             // Stealth logic - ONLY BUSHES work for hiding
             let playerHidden = false;
@@ -1269,39 +1337,95 @@
             keys[e.key] = false;
         });
 
+        // Track mouse button state
+        let mouseDown = false;
+        
+        // Handle mouse down for attacking
+        // Track if we've already processed a click in this frame
+        let clickProcessed = false;
+        
         canvas.addEventListener('mousedown', (e) => {
-            if (gameState === 'playing') {
-                mouseClicked = true;
+            if (e.button === 0) { // Only left mouse button
+                mouseDown = true;
+                
+                if (gameState === 'playing' && !clickProcessed) {
+                    if (!worldState.attacking && worldState.attackCooldown <= 0) {
+                        worldState.attacking = true;
+                        worldState.attackCooldown = ATTACK_COOLDOWN;
+                        worldState.attackAnimTime = 0;
+                        worldState.attackAnimFrame = 0;
+                        clickProcessed = true; // Prevent multiple attacks from the same click
+                    }
+                } else if (gameState === 'title') {
+                    // Start game on title screen click
+                    worldState = resetWorld(null, !tutorialCompleted);
+                    gameState = 'playing';
+                    stateTimer = 0;
+                }
             }
         });
-
-        canvas.addEventListener('click', (e) => {
-            if (gameState === 'title') {
-                worldState = resetWorld(null, !tutorialCompleted);
-                gameState = 'playing';
-                stateTimer = 0;
+        
+        // Handle mouse up to reset the attack state
+        canvas.addEventListener('mouseup', (e) => {
+            if (e.button === 0) {
+                mouseDown = false;
+                clickProcessed = false; // allow a new attack on the next click
             }
         });
+        
+        // Handle mouse leave to prevent stuck states
+        canvas.addEventListener('mouseleave', () => {
+            mouseDown = false;
+            clickProcessed = false; // reset when leaving canvas to avoid stuck state
+        });
+        
+        // Remove the old click handler since we're handling everything in mousedown now
 
         // === GAME LOOP ===
-        function gameLoop(currentTime) {
-            // Calculate delta time
-            let dt = (currentTime - lastTime) / 1000;
-            lastTime = currentTime;
+        let accumulator = 0;
+        lastTime = performance.now();
+        lastRenderTime = lastTime;
+        
+        function gameLoop(timestamp) {
+            // Calculate time since last frame in seconds
+            let frameTime = (timestamp - lastRenderTime) / 1000;
+            lastRenderTime = timestamp;
             
-            // Cap delta time to prevent large jumps
-            const maxDt = (1.0 / FPS) * 2;
-            dt = Math.min(dt, maxDt);
-
+            // Cap the frame time to avoid spiral of death
+            frameTime = Math.min(frameTime, 0.1);
+            
+            // Update animation states with precise timing
+            if (worldState) {
+                updateAnimationStates(worldState, frameTime);
+            }
+            
+            // Update game logic at fixed timestep
+            accumulator += frameTime;
+            let steps = 0;
+            
+            while (accumulator >= STEP && steps < MAX_FRAME_SKIP) {
+                if (gameState === 'playing' && worldState) {
+                    updatePlayState(worldState, STEP);
+                }
+                accumulator -= STEP;
+                steps++;
+            }
+            
+            // Always render, using the accumulator for interpolation
+            render(accumulator / STEP);
+            
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+        
+        function updateGame(dt) {
             // Update game state
             if (gameState === 'loading') {
-                drawLoading();
+                // No updates during loading
             } else if (gameState === 'title') {
-                drawTitle();
+                // No updates on title screen
             } else if (gameState === 'playing') {
                 if (worldState) {
                     updatePlayState(worldState, dt);
-                    drawGame(worldState);
                     
                     if (worldState.caught) {
                         gameState = 'caught';
@@ -1313,25 +1437,97 @@
                     }
                 }
             } else if (gameState === 'caught') {
-                if (worldState) {
-                    drawGame(worldState);
-                    drawCaught();
-                }
-                
                 stateTimer += dt;
                 if (stateTimer >= 1.8) {
                     worldState = resetWorld(null, worldState ? worldState.isTutorial : false);
                     gameState = 'playing';
                     stateTimer = 0;
                 }
-            } else if (gameState === 'win') {
+            }
+        }
+        
+        function updateAnimationStates(world, dt) {
+            // Update animation timers and frame counters
+            if (world.hurt) {
+                world.hurtTime += dt;
+                const hurtDuration = HURT_FRAME_COUNT / HURT_ANIM_FPS;
+                if (world.hurtTime >= hurtDuration) {
+                    world.hurt = false;
+                    world.hurtTime = 0;
+                }
+                world.hurtFrame = Math.min(
+                    Math.floor(world.hurtTime * HURT_ANIM_FPS),
+                    HURT_FRAME_COUNT - 1
+                );
+            }
+            
+            if (world.attacking) {
+                world.attackAnimTime += dt;
+                const attackDuration = ATTACK_FRAME_COUNT / ATTACK_ANIM_FPS;
+                if (world.attackAnimTime >= attackDuration) {
+                    world.attacking = false;
+                    world.attackAnimTime = 0;
+                }
+                world.attackAnimFrame = Math.min(
+                    Math.floor(world.attackAnimTime * ATTACK_ANIM_FPS),
+                    ATTACK_FRAME_COUNT - 1
+                );
+            }
+            
+            // Update run animation - using 16 frames at 18 FPS (from constants)
+            if (Math.abs(world.playerVelX) > 10) {
+                world.animTime += dt;
+                // Calculate frame based on time and animation speed
+                const frameFloat = (world.animTime * RUN_ANIM_FPS) % RUN_FRAME_COUNT;
+                world.animFrame = Math.floor(frameFloat);
+                world.animProgress = frameFloat % 1; // Store sub-frame progress for interpolation
+                
+                // Debug: Uncomment to verify animation frame progression
+                // console.log(`Frame: ${world.animFrame}, Progress: ${world.animProgress.toFixed(2)}`);
+            } else {
+                // Reset to first frame when not moving
+                world.animTime = 0;
+                world.animFrame = 0;
+                world.animProgress = 0;
+            }
+        }
+        
+        function render(alpha) {
+            // Clear the canvas with a single operation
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Enable image smoothing for smoother rendering
+            ctx.imageSmoothingEnabled = true;
+            ctx.webkitImageSmoothingEnabled = true;
+            ctx.mozImageSmoothingEnabled = true;
+            
+            // Render appropriate screen
+            if (gameState === 'loading') {
+                drawLoading();
+            } else if (gameState === 'title') {
+                drawTitle();
+            } else if (gameState === 'playing' || gameState === 'caught' || gameState === 'win') {
                 if (worldState) {
+                    // Store current context state
+                    ctx.save();
+                    
+                    // Apply subpixel rendering for smoother movement
+                    ctx.translate(0.5, 0.5);
+                    
+                    // Render the game
                     drawGame(worldState);
-                    drawWin(worldState);
+                    
+                    // Restore context state
+                    ctx.restore();
+                    
+                    // Draw UI elements on top
+                    if (gameState === 'caught') {
+                        drawCaught();
+                    } else if (gameState === 'win') {
+                        drawWin(worldState);
+                    }
                 }
             }
-
-            requestAnimationFrame(gameLoop);
         }
 
         // === INITIALIZATION ===
@@ -1341,19 +1537,22 @@
             console.log('Canvas:', canvas);
             console.log('Context:', ctx);
             
-            initSprites();
-            
-            // Fallback: Force start after 5 seconds if loading fails
-            setTimeout(() => {
-                if (gameState === 'loading') {
-                    console.warn('Sprite loading timeout - forcing game start');
-                    gameState = 'title';
-                }
-            }, 5000);
+            // Initialize game state
+            gameState = 'title';
+            worldState = resetWorld(null, !tutorialCompleted);
             
             // Start game loop
             lastTime = performance.now();
+            lastRenderTime = lastTime;
+            
+            // Start with title screen
+            drawTitle();
+            
+            // Start the game loop
             requestAnimationFrame(gameLoop);
+            
+            // Initialize sprites
+            initSprites();
         });
     </script>
 </body>

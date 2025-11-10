@@ -15,7 +15,27 @@ coyoteTime = 0.14
 jumpBuffer = 0.16
 walkSpeed = 240
 runSpeed = 340
-playerSize = (63, 120)
+PLAYER_JUMP = 900
+PLAYER_SPEED = 240
+PLAYER_RUN_SPEED = 340
+# Player sprite size (increased from 42x80 to 60x100)
+playerSize = (60, 100)  # Width and height of the player sprite
+
+# Hitbox settings (smaller than the sprite for better gameplay)
+# These are the same as before to maintain consistent hitbox size
+PLAYER_HITBOX_OFFSET_X = 9  # Pixels from left/right (scaled up proportionally)
+PLAYER_HITBOX_OFFSET_TOP = 15  # Pixels from top (scaled up proportionally)
+PLAYER_HITBOX_OFFSET_BOTTOM = 6  # Pixels from bottom (scaled up proportionally)
+
+def get_player_hitbox(x, y):
+    """Calculate the player's hitbox based on position and offsets."""
+    return pygame.Rect(
+        x + PLAYER_HITBOX_OFFSET_X,
+        y + PLAYER_HITBOX_OFFSET_TOP,
+        playerSize[0] - (PLAYER_HITBOX_OFFSET_X * 2),
+        playerSize[1] - PLAYER_HITBOX_OFFSET_TOP - PLAYER_HITBOX_OFFSET_BOTTOM
+    )
+
 backgroundColor = (8, 14, 22)
 playerColor = (150, 230, 255)
 playerGlow = (40, 120, 140)
@@ -44,8 +64,9 @@ runFrameCount = 16
 attackFrameCount = 7
 runAnimFps = 18
 attackAnimFps = 16
-attackWidth = 110
-attackHeight = 70
+# Increase attack hitbox size proportionally
+attackWidth = 160  # Increased from 110
+attackHeight = 100  # Increased from 70
 attackCooldown = 0.5
 attackActiveFrame = 3
 hurtFrameCount = 4
@@ -453,7 +474,7 @@ def makeTutorialLevel(rng):
         {"rect": pygame.Rect(580, 460, orbSize * 2, orbSize * 2), "rescued": False, "pulsePhase": 0.0},
         {"rect": pygame.Rect(1250, 410, orbSize * 2, orbSize * 2), "rescued": False, "pulsePhase": math.pi},
     ]
-
+    
     enemies = [
         {
             "rect": pygame.Rect(900, 440, 42, 80),
@@ -490,7 +511,18 @@ def makeTutorialLevel(rng):
 
 def resetWorld(seed=None, tutorial=False):
     rng = random.Random(seed)
-    playerRect = pygame.Rect(80, 640 - playerHitboxSize[1], playerHitboxSize[0], playerHitboxSize[1])
+    # Position player on the ground
+    playerX = 80
+    # The floor is at y=640, and we want the player's feet to be at this position
+    # Set player Y position to place their feet at y=640
+    playerY = 640 - playerSize[1]  # This positions the bottom of the sprite at y=640
+    playerRect = get_player_hitbox(playerX, playerY)
+    
+    # Adjust for any remaining offset to ensure the player is exactly on the ground
+    ground_level = 640
+    player_bottom = playerRect.bottom
+    playerY -= (player_bottom - ground_level)
+    playerRect = get_player_hitbox(playerX, playerY)
 
     if tutorial:
         levelData = makeTutorialLevel(rng)
@@ -660,11 +692,36 @@ def updatePlayState(world, keys, events, dt):
     if world["onGround"]:
         world["coyoteTimer"] = coyoteTime
 
+    # Handle attack input and animation
     if attackPressed and not world["attacking"] and world["attackCooldown"] <= 0:
         world["attacking"] = True
         world["attackCooldown"] = attackCooldown
         world["attackAnimTime"] = 0.0
         world["attackAnimFrame"] = 0
+        
+    # Update attack animation if attacking
+    if world["attacking"]:
+        world["attackAnimTime"] += dt
+        world["attackAnimFrame"] = int(world["attackAnimTime"] * attackAnimFps)
+        
+        # Create attack hitbox when on the active frame
+        if world["attackAnimFrame"] == attackActiveFrame and world["attackCooldown"] > attackCooldown * 0.8:
+            attackX = world["playerRect"].x + (world["playerRect"].width if world["facing"] > 0 else -attackWidth)
+            world["attackRect"] = pygame.Rect(
+                attackX,
+                world["playerRect"].y + (world["playerRect"].height - attackHeight) // 2,
+                attackWidth,
+                attackHeight
+            )
+        else:
+            world["attackRect"] = None
+            
+        # End attack animation when complete
+        if world["attackAnimTime"] >= attackFrameCount / attackAnimFps:
+            world["attacking"] = False
+            world["attackAnimTime"] = 0
+            world["attackAnimFrame"] = 0
+            world["attackRect"] = None
 
     horizontalSpeed = abs(world["playerVel"].x)
     movingHorizontally = horizontalSpeed > 60

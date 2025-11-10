@@ -1,20 +1,34 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Simple Forest Game</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whispers of the Canopy</title>
     <style>
-        /* super basic styling bc i'm lazy */
-        body {
+        * {
             margin: 0;
             padding: 0;
-            background: #000;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+            background: #080e16;
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
         }
+
         #gameCanvas {
-            border: 2px solid white;
+            display: block;
+            background: #080e16;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }
+
         .preload-images {
             position: absolute;
             left: -9999px;
@@ -25,7 +39,7 @@
     </style>
 </head>
 <body>
-    <!-- hiding images somewhere off screen lol -->
+    <!-- Preload images -->
     <div class="preload-images">
         <img id="runSprite" src="https://hc-cdn.hel1.your-objectstorage.com/s/v3/fd928ebfc670a318a63322ac90b412f8dcaa2543_run.png" alt="Run">
         <img id="attackSprite" src="https://hc-cdn.hel1.your-objectstorage.com/s/v3/57782f541c678455ea6b403a4f0e13480e024a97_attack.png" alt="Attack">
@@ -38,54 +52,53 @@
     <canvas id="gameCanvas" width="1280" height="720"></canvas>
 
     <script>
-        // hi future me: sorry this script is a spaghetti pile but at least it runs
-        // random numbers i scribbled so the world fits on my monitor
-        var GAME_WIDTH = 1280;
-        var GAME_HEIGHT = 720;
-        var LEVEL_WIDTH = 4200;
-        var FPS = 60;
-        var GRAVITY = 2400;
-        var JUMP_FORCE = 900;
-        var COYOTE_TIME = 0.14;
-        var JUMP_BUFFER = 0.16;
-        var WALK_SPEED = 240;
-        var RUN_SPEED = 340;
-        var PLAYER_WIDTH = 63;
-        var PLAYER_HEIGHT = 120;
+        // === GAME CONSTANTS ===
+        const GAME_WIDTH = 1280;
+        const GAME_HEIGHT = 720;
+        const LEVEL_WIDTH = 4200;
+        const FPS = 60;
+        const GRAVITY = 2400;
+        const JUMP_FORCE = 900;
+        const COYOTE_TIME = 0.14;
+        const JUMP_BUFFER = 0.16;
+        const WALK_SPEED = 240;
+        const RUN_SPEED = 340;
+        const PLAYER_WIDTH = 63;
+        const PLAYER_HEIGHT = 120;
         
-        // animation junk (pls don't mess with these)
-        var RUN_FRAME_COUNT = 16;
-        var ATTACK_FRAME_COUNT = 7;
-        var HURT_FRAME_COUNT = 4;
-        var RUN_ANIM_FPS = 18;
-        var ATTACK_ANIM_FPS = 16;
-        var HURT_ANIM_FPS = 8;
-        var ATTACK_WIDTH = 110;
-        var ATTACK_HEIGHT = 70;
-        var ATTACK_COOLDOWN = 0.5;
-        var ATTACK_ACTIVE_FRAME = 3;
+        // Animation constants
+        const RUN_FRAME_COUNT = 16;
+        const ATTACK_FRAME_COUNT = 7;
+        const HURT_FRAME_COUNT = 4;
+        const RUN_ANIM_FPS = 18;
+        const ATTACK_ANIM_FPS = 16;
+        const HURT_ANIM_FPS = 8;
+        const ATTACK_WIDTH = 110;
+        const ATTACK_HEIGHT = 70;
+        const ATTACK_COOLDOWN = 0.5;
+        const ATTACK_ACTIVE_FRAME = 3;
         
-        // bushes + enemies math that i kinda guessed
-        var BUSH_COLUMNS = 3;
-        var BUSH_ROWS = 3;
-        var ENEMY_TARGET_COUNT = 5;
-        var ENEMY_WALKING_FRAME_COUNT = 9;
-        var ENEMY_DEATH_FRAME_COUNT = 8;
-        var ENEMY_WALK_ANIM_FPS = 12;
-        var ENEMY_DEATH_ANIM_FPS = 10;
-        var GUARD_WIDTH = 42;
-        var GUARD_HEIGHT = 80;
-        var DRONE_WIDTH = 48;
-        var DRONE_HEIGHT = 48;
+        // Bush and enemy constants
+        const BUSH_COLUMNS = 3;
+        const BUSH_ROWS = 3;
+        const ENEMY_TARGET_COUNT = 5;
+        const ENEMY_WALKING_FRAME_COUNT = 9;
+        const ENEMY_DEATH_FRAME_COUNT = 8;
+        const ENEMY_WALK_ANIM_FPS = 12;
+        const ENEMY_DEATH_ANIM_FPS = 10;
+        const GUARD_WIDTH = 42;
+        const GUARD_HEIGHT = 80;
+        const DRONE_WIDTH = 48;
+        const DRONE_HEIGHT = 48;
         
-        // sparkly orb numbers from vibes
-        var ORB_COUNT = 4;
-        var ORB_SIZE = 20;
-        var ORB_GLOW_SIZE = 35;
-        var ORB_PULSE_SPEED = 3.0;
+        // Orb constants
+        const ORB_COUNT = 4;
+        const ORB_SIZE = 20;
+        const ORB_GLOW_SIZE = 35;
+        const ORB_PULSE_SPEED = 3.0;
 
-        // color palette i eyeballed at 2am
-        var COLORS = {
+        // Colors
+        const COLORS = {
             background: '#080e16',
             player: '#96e6ff',
             playerGlow: '#287c8c',
@@ -100,41 +113,40 @@
             orbCore: '#dcf0ff',
             platform: '#1e2823'
         };
-        var randomNotesINeverUse = []; // maybe i'll store secrets here later idk
 
-        // canvas wiring (literally just grabbing it)
-        var canvas = document.getElementById('gameCanvas'); // hope this exists lol
-        var ctx = canvas.getContext('2d'); // drawing magic thing
+        // Canvas setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
 
-        // keyboard/mouse stash
-        var keys = {};
-        var mouseClicked = false;
+        // Input state
+        const keys = {};
+        let mouseClicked = false;
 
-        // dumping all the frames in these objects
-        var runFrames = { right: [], left: [] };
-        var attackFrames = { right: [], left: [] };
-        var hurtFrames = { right: [], left: [] };
-        var bushSprites = [];
-        var enemyWalkingFrames = { right: [], left: [] };
-        var enemyDeathFrames = { right: [], left: [] };
+        // Sprite storage
+        let runFrames = { right: [], left: [] };
+        let attackFrames = { right: [], left: [] };
+        let hurtFrames = { right: [], left: [] };
+        let bushSprites = [];
+        let enemyWalkingFrames = { right: [], left: [] };
+        let enemyDeathFrames = { right: [], left: [] };
 
-        // whole-game mood swings live here
-        var gameState = 'loading';
-        var worldState = null; // sorry for using one giant global object
-        var tutorialCompleted = false;
-        var stateTimer = 0;
-        var lastTime = performance.now();
-        var spritesLoaded = 0;
-        var totalSprites = 6;
+        // Game state
+        let gameState = 'loading';
+        let worldState = null;
+        let tutorialCompleted = false;
+        let stateTimer = 0;
+        let lastTime = performance.now();
+        let spritesLoaded = 0;
+        const totalSprites = 6;
 
-        // bargain bin random generator i swiped
+        // === UTILITY CLASSES ===
         class SeededRandom {
             constructor(seed = Date.now()) {
                 this.seed = seed;
             }
             
             random() {
-                var x = Math.sin(this.seed++) * 10000; // i totally copied this from the internet
+                const x = Math.sin(this.seed++) * 10000;
                 return x - Math.floor(x);
             }
             
@@ -151,20 +163,19 @@
             }
         }
 
-        // sprite chopping zone
+        // === SPRITE LOADING ===
         function extractFrames(image, frameCount, targetWidth, targetHeight, outputFrames) {
-            if (!image || !image.complete) return; // no pic? no frames.
-            console.log('cutting sprite sheet cuz apparently i have to', frameCount);
+            if (!image || !image.complete) return;
             
-            var frameWidth = image.width / frameCount;
-            var frameHeight = image.height;
+            const frameWidth = image.width / frameCount;
+            const frameHeight = image.height;
             
-            for (var i = 0; i < frameCount; i++) {
-                // draw it once facing right
-                var canvas = document.createElement('canvas');
+            for (let i = 0; i < frameCount; i++) {
+                // Create right-facing frame
+                const canvas = document.createElement('canvas');
                 canvas.width = targetWidth;
                 canvas.height = targetHeight;
-                var ctx = canvas.getContext('2d');
+                const ctx = canvas.getContext('2d');
                 
                 ctx.drawImage(
                     image,
@@ -174,11 +185,11 @@
                 
                 outputFrames.right.push(canvas);
                 
-                // then flip it because mirrors are free
-                var flipped = document.createElement('canvas');
+                // Create left-facing frame (flipped)
+                const flipped = document.createElement('canvas');
                 flipped.width = targetWidth;
                 flipped.height = targetHeight;
-                var flipCtx = flipped.getContext('2d');
+                const flipCtx = flipped.getContext('2d');
                 flipCtx.translate(targetWidth, 0);
                 flipCtx.scale(-1, 1);
                 flipCtx.drawImage(canvas, 0, 0);
@@ -189,15 +200,15 @@
 
         function removeWhitePixels(canvas, tolerance = 4) {
             try {
-                var ctx = canvas.getContext('2d');
-                var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                var data = imageData.data;
-                var threshold = 255 - tolerance;
+                const ctx = canvas.getContext('2d');
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const data = imageData.data;
+                const threshold = 255 - tolerance;
                 
-                for (var i = 0; i < data.length; i += 4) {
-                    var r = data[i];
-                    var g = data[i + 1];
-                    var b = data[i + 2];
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
                     
                     // If pixel is close to white, make it transparent
                     if (r >= threshold && g >= threshold && b >= threshold) {
@@ -207,30 +218,30 @@
                 
                 ctx.putImageData(imageData, 0, 0);
             } catch (e) {
-                console.warn('cant delete white pixels, browser mad:', e.message);
-                // whatever, we'll live with it
+                console.warn('Could not remove white pixels (CORS issue):', e.message);
+                // Continue without removing white pixels
             }
             return canvas;
         }
 
         function extractBushSprites() {
-            var bushImg = document.getElementById('bushSprite');
+            const bushImg = document.getElementById('bushSprite');
             if (!bushImg || !bushImg.complete) {
-                console.warn('bush pic isnt ready yet chill');
+                console.warn('Bush sprite not ready for extraction');
                 return;
             }
             
-            console.log('trying to slice bush pic:', bushImg.naturalWidth, 'x', bushImg.naturalHeight);
+            console.log('Extracting bush sprites from image:', bushImg.naturalWidth, 'x', bushImg.naturalHeight);
             
-            var tileWidth = bushImg.width / BUSH_COLUMNS;
-            var tileHeight = bushImg.height / BUSH_ROWS;
+            const tileWidth = bushImg.width / BUSH_COLUMNS;
+            const tileHeight = bushImg.height / BUSH_ROWS;
             
-            for (var row = 0; row < BUSH_ROWS; row++) {
-                for (var col = 0; col < BUSH_COLUMNS; col++) {
-                    var canvas = document.createElement('canvas');
+            for (let row = 0; row < BUSH_ROWS; row++) {
+                for (let col = 0; col < BUSH_COLUMNS; col++) {
+                    const canvas = document.createElement('canvas');
                     canvas.width = tileWidth;
                     canvas.height = tileHeight;
-                    var ctx = canvas.getContext('2d');
+                    const ctx = canvas.getContext('2d');
                     
                     ctx.drawImage(
                         bushImg,
@@ -245,15 +256,15 @@
                 }
             }
             
-            console.log(`got ${bushSprites.length} bush chunks`);
+            console.log(`Extracted ${bushSprites.length} bush sprites`);
         }
 
         function checkSpriteLoaded() {
             spritesLoaded++;
-            console.log(`sprites so far: ${spritesLoaded}/${totalSprites}`);
+            console.log(`Sprites loaded: ${spritesLoaded}/${totalSprites}`);
             
             if (spritesLoaded >= totalSprites) {
-                console.log('all sprites are in, now i get to chop them up');
+                console.log('All sprites loaded, extracting frames...');
                 // Extract all frames (no bush sprites needed - using rectangles)
                 extractFrames(document.getElementById('runSprite'), RUN_FRAME_COUNT, PLAYER_WIDTH, PLAYER_HEIGHT, runFrames);
                 extractFrames(document.getElementById('attackSprite'), ATTACK_FRAME_COUNT, PLAYER_WIDTH, PLAYER_HEIGHT, attackFrames);
@@ -261,24 +272,24 @@
                 extractFrames(document.getElementById('enemyWalkingSprite'), ENEMY_WALKING_FRAME_COUNT, GUARD_WIDTH, GUARD_HEIGHT, enemyWalkingFrames);
                 extractFrames(document.getElementById('enemyDeathSprite'), ENEMY_DEATH_FRAME_COUNT, GUARD_WIDTH, GUARD_HEIGHT, enemyDeathFrames);
                 
-                console.log('finally sliced the frames, let's just start already');
+                console.log('Frame extraction complete. Starting game...');
                 gameState = 'title';
             }
         }
 
         function initSprites() {
-            var spriteIds = ['runSprite', 'attackSprite', 'hurtSprite', 'bushSprite', 'enemyWalkingSprite', 'enemyDeathSprite'];
+            const spriteIds = ['runSprite', 'attackSprite', 'hurtSprite', 'bushSprite', 'enemyWalkingSprite', 'enemyDeathSprite'];
             
-            console.log('ok time to load a bunch of pngs');
+            console.log('Starting sprite loading...');
             
             spriteIds.forEach(id => {
-                var img = document.getElementById(id);
+                const img = document.getElementById(id);
                 if (!img) {
-                    console.error(`uhhh cant find image tag: ${id}`);
+                    console.error(`Image element not found: ${id}`);
                     return;
                 }
                 
-                console.log(`checking on ${id}:`, {
+                console.log(`Setting up ${id}:`, {
                     src: img.src,
                     complete: img.complete,
                     naturalWidth: img.naturalWidth,
@@ -286,19 +297,19 @@
                 });
                 
                 img.onload = () => {
-                    console.log(`loaded ${id} yay (${img.naturalWidth}x${img.naturalHeight})`);
+                    console.log(`✓ Loaded: ${id} (${img.naturalWidth}x${img.naturalHeight})`);
                     checkSpriteLoaded();
                 };
                 
                 img.onerror = (e) => {
-                    console.error(`oops sprite ${id} died`, e);
+                    console.error(`✗ Failed to load sprite: ${id}`, e);
                     checkSpriteLoaded();
                 };
                 
                 // If already complete, trigger check
                 if (img.complete) {
                     if (img.naturalWidth > 0) {
-                        console.log(`browser already had ${id}, neat`);
+                        console.log(`Already loaded: ${id}`);
                         setTimeout(checkSpriteLoaded, 10);
                     } else {
                         console.error(`Image failed to load (naturalWidth = 0): ${id}`);
@@ -308,37 +319,37 @@
             });
         }
 
-        // level maker thingy
+        // === LEVEL GENERATION ===
         function makePlatforms(rng) {
-            var platforms = [
+            const platforms = [
                 { x: 0, y: 640, width: LEVEL_WIDTH, height: 120 } // Floor
             ];
 
-            var currentX = 140;
-            var currentY = rng.randint(480, 560);
-            var maxX = LEVEL_WIDTH - 420;
+            let currentX = 140;
+            let currentY = rng.randint(480, 560);
+            const maxX = LEVEL_WIDTH - 420;
 
             while (currentX < maxX) {
-                var width = rng.randint(170, 260);
+                const width = rng.randint(170, 260);
                 platforms.push({ x: currentX, y: currentY, width: width, height: 18 });
-                var gap = rng.randint(90, 150);
+                const gap = rng.randint(90, 150);
                 currentX += width + gap;
                 currentY = Math.max(380, Math.min(600, currentY + rng.randint(-60, 60)));
             }
 
             // Landing platform near exit
-            var landingWidth = 280;
-            var landingY = Math.max(380, Math.min(580, currentY));
-            var landingX = LEVEL_WIDTH - landingWidth - 120;
+            const landingWidth = 280;
+            const landingY = Math.max(380, Math.min(580, currentY));
+            const landingX = LEVEL_WIDTH - landingWidth - 120;
             platforms.push({ x: landingX, y: landingY, width: landingWidth, height: 18 });
 
             // Add some extra platforms above
-            for (var i = 0; i < 3; i++) {
-                var base = platforms[rng.randint(1, platforms.length - 1)];
-                var width = rng.randint(130, 190);
-                var x = base.x + base.width / 2 + rng.randint(-120, 120) - width / 2;
+            for (let i = 0; i < 3; i++) {
+                const base = platforms[rng.randint(1, platforms.length - 1)];
+                const width = rng.randint(130, 190);
+                let x = base.x + base.width / 2 + rng.randint(-120, 120) - width / 2;
                 x = Math.max(80, Math.min(LEVEL_WIDTH - width - 80, x));
-                var y = Math.max(300, base.y - rng.randint(70, 130));
+                const y = Math.max(300, base.y - rng.randint(70, 130));
                 platforms.push({ x, y, width, height: 18 });
             }
 
@@ -346,25 +357,25 @@
         }
 
         function makeHidingSpots(rng, platforms) {
-            var spots = [];
-            var count = rng.randint(8, 12);
+            const spots = [];
+            const count = rng.randint(8, 12);
 
             // ONLY BUSHES (as per user request) - now using colored rectangles
-            var bushTemplates = [
+            const bushTemplates = [
                 { width: 110, height: 70, strength: 0.3 },
                 { width: 120, height: 80, strength: 0.2 },
                 { width: 140, height: 80, strength: 0.18 },
                 { width: 150, height: 80, strength: 0.2 },
             ];
 
-            for (var i = 0; i < count; i++) {
-                var template = rng.choice(bushTemplates);
-                var platform = rng.choice(platforms);
+            for (let i = 0; i < count; i++) {
+                const template = rng.choice(bushTemplates);
+                const platform = rng.choice(platforms);
                 
-                var x, y;
+                let x, y;
                 if (platform.width >= template.width + 20) {
-                    var minX = platform.x + 5;
-                    var maxX = platform.x + platform.width - template.width - 5;
+                    const minX = platform.x + 5;
+                    const maxX = platform.x + platform.width - template.width - 5;
                     x = rng.randint(Math.floor(minX), Math.floor(maxX));
                     y = platform.y - template.height;
                 } else {
@@ -387,21 +398,21 @@
         }
 
         function makeOrbs(rng, platforms) {
-            var orbs = [];
-            var perches = platforms.filter(p => p.height <= 20 && p.width > 40 && p.y <= 620);
-            var validPerches = perches.length > 0 ? perches : [platforms[0]];
-            var attempts = 0;
+            const orbs = [];
+            const perches = platforms.filter(p => p.height <= 20 && p.width > 40 && p.y <= 620);
+            const validPerches = perches.length > 0 ? perches : [platforms[0]];
+            let attempts = 0;
 
             while (orbs.length < ORB_COUNT && attempts < ORB_COUNT * 4) {
                 attempts++;
-                var platform = rng.choice(validPerches);
-                var left = platform.x + 10;
-                var right = platform.x + platform.width - 40;
+                const platform = rng.choice(validPerches);
+                const left = platform.x + 10;
+                const right = platform.x + platform.width - 40;
                 
                 if (right <= left) continue;
                 
-                var x = rng.randint(left, right);
-                var y = platform.y - ORB_SIZE - 5;
+                const x = rng.randint(left, right);
+                const y = platform.y - ORB_SIZE - 5;
                 
                 orbs.push({
                     x, y,
@@ -416,26 +427,26 @@
         }
 
         function makeEnemies(rng, platforms) {
-            var enemies = [];
-            var perches = platforms.filter(p => p.height <= 20 && p.width > 80);
-            var attempts = 0;
+            const enemies = [];
+            const perches = platforms.filter(p => p.height <= 20 && p.width > 80);
+            let attempts = 0;
 
             while (enemies.length < ENEMY_TARGET_COUNT && attempts < ENEMY_TARGET_COUNT * 6) {
                 attempts++;
-                var isGuard = rng.random() < 0.65;
+                const isGuard = rng.random() < 0.65;
 
-                var enemy;
+                let enemy;
                 if (isGuard && perches.length > 0) {
-                    var platform = rng.choice(perches);
-                    var width = GUARD_WIDTH;
-                    var height = GUARD_HEIGHT;
-                    var roam = rng.randint(140, Math.min(420, platform.width + 200));
-                    var pathLeft = Math.max(0, platform.x + platform.width / 2 - roam / 2);
-                    var pathRight = Math.min(LEVEL_WIDTH, pathLeft + roam);
-                    var maxPos = pathRight - width;
+                    const platform = rng.choice(perches);
+                    const width = GUARD_WIDTH;
+                    const height = GUARD_HEIGHT;
+                    const roam = rng.randint(140, Math.min(420, platform.width + 200));
+                    const pathLeft = Math.max(0, platform.x + platform.width / 2 - roam / 2);
+                    const pathRight = Math.min(LEVEL_WIDTH, pathLeft + roam);
+                    const maxPos = pathRight - width;
                     if (maxPos <= pathLeft) continue;
-                    var x = Math.max(pathLeft, Math.min(platform.x, maxPos));
-                    var y = platform.y - height;
+                    const x = Math.max(pathLeft, Math.min(platform.x, maxPos));
+                    const y = platform.y - height;
                     
                     enemy = {
                         x, y, width, height,
@@ -452,13 +463,13 @@
                         deathAnimFrame: 0
                     };
                 } else {
-                    var width = DRONE_WIDTH;
-                    var height = DRONE_HEIGHT;
-                    var x = rng.randint(100, LEVEL_WIDTH - width - 100);
-                    var y = rng.randint(320, 460);
-                    var roam = rng.randint(220, 420);
-                    var pathLeft = Math.max(0, x - roam / 2);
-                    var pathRight = Math.min(LEVEL_WIDTH, pathLeft + roam);
+                    const width = DRONE_WIDTH;
+                    const height = DRONE_HEIGHT;
+                    const x = rng.randint(100, LEVEL_WIDTH - width - 100);
+                    const y = rng.randint(320, 460);
+                    const roam = rng.randint(220, 420);
+                    const pathLeft = Math.max(0, x - roam / 2);
+                    const pathRight = Math.min(LEVEL_WIDTH, pathLeft + roam);
                     
                     enemy = {
                         x, y, width, height,
@@ -483,7 +494,7 @@
         }
 
         function makeTutorialLevel(rng) {
-            var platforms = [
+            const platforms = [
                 { x: 0, y: 640, width: LEVEL_WIDTH, height: 120 },
                 { x: 200, y: 560, width: 180, height: 18 },
                 { x: 520, y: 520, width: 200, height: 18 },
@@ -493,18 +504,18 @@
             ];
 
             // ONLY BUSHES for tutorial - using colored rectangles
-            var hidingSpots = [
+            const hidingSpots = [
                 { x: 120, y: 580, width: 140, height: 70, strength: 0.25, type: 'bush', solid: false, sprite: null },
                 { x: 460, y: 540, width: 150, height: 70, strength: 0.3, type: 'bush', solid: false, sprite: null },
                 { x: 1020, y: 500, width: 150, height: 70, strength: 0.28, type: 'bush', solid: false, sprite: null },
             ];
 
-            var orbs = [
+            const orbs = [
                 { x: 580, y: 460, width: ORB_SIZE * 2, height: ORB_SIZE * 2, rescued: false, pulsePhase: 0 },
                 { x: 1250, y: 410, width: ORB_SIZE * 2, height: ORB_SIZE * 2, rescued: false, pulsePhase: Math.PI },
             ];
 
-            var enemies = [
+            const enemies = [
                 {
                     x: 900, y: 440, width: GUARD_WIDTH, height: GUARD_HEIGHT,
                     pathLeft: 850, pathRight: 1150,
@@ -532,16 +543,16 @@
         }
 
         function resetWorld(seed = null, tutorial = false) {
-            var rng = new SeededRandom(seed || Date.now());
+            const rng = new SeededRandom(seed || Date.now());
             
-            var levelData;
+            let levelData;
             if (tutorial) {
                 levelData = makeTutorialLevel(rng);
             } else {
-                var platforms = makePlatforms(rng);
-                var hidingSpots = makeHidingSpots(rng, platforms);
-                var orbs = makeOrbs(rng, platforms);
-                var enemies = makeEnemies(rng, platforms);
+                const platforms = makePlatforms(rng);
+                const hidingSpots = makeHidingSpots(rng, platforms);
+                const orbs = makeOrbs(rng, platforms);
+                const enemies = makeEnemies(rng, platforms);
                 
                 levelData = {
                     platforms,
@@ -589,7 +600,7 @@
             };
         }
 
-        // collision math stuff
+        // === COLLISION AND GEOMETRY ===
         function rectCollides(r1, r2) {
             return r1.x < r2.x + r2.width &&
                    r1.x + r1.width > r2.x &&
@@ -598,28 +609,28 @@
         }
 
         function buildVisionCone(enemy) {
-            var facing = enemy.dir >= 0 ? 1 : -1;
-            var eyeX = enemy.x + enemy.width / 2;
-            var eyeY = enemy.type === 'guard' ? enemy.y + 20 : enemy.y + enemy.height / 2;
-            var reach = enemy.visionReach;
-            var spread = enemy.visionSpread;
+            const facing = enemy.dir >= 0 ? 1 : -1;
+            const eyeX = enemy.x + enemy.width / 2;
+            const eyeY = enemy.type === 'guard' ? enemy.y + 20 : enemy.y + enemy.height / 2;
+            const reach = enemy.visionReach;
+            const spread = enemy.visionSpread;
             
-            var tip = [eyeX + facing * reach, eyeY - 30];
-            var upper = [eyeX + facing * reach * 0.6, eyeY - spread * 0.4];
-            var lower = [eyeX + facing * reach * 0.6, eyeY + spread * 0.4];
+            const tip = [eyeX + facing * reach, eyeY - 30];
+            const upper = [eyeX + facing * reach * 0.6, eyeY - spread * 0.4];
+            const lower = [eyeX + facing * reach * 0.6, eyeY + spread * 0.4];
             
             return [[eyeX, eyeY], upper, tip, lower];
         }
 
         function pointInPoly(point, polygon) {
-            var [px, py] = point;
-            var inside = false;
-            var j = polygon.length - 1;
+            const [px, py] = point;
+            let inside = false;
+            let j = polygon.length - 1;
             
-            for (var i = 0; i < polygon.length; i++) {
-                var [ix, iy] = polygon[i];
-                var [jx, jy] = polygon[j];
-                var intersect = ((iy > py) !== (jy > py)) &&
+            for (let i = 0; i < polygon.length; i++) {
+                const [ix, iy] = polygon[i];
+                const [jx, jy] = polygon[j];
+                const intersect = ((iy > py) !== (jy > py)) &&
                     (px < (jx - ix) * (py - iy) / (jy - iy + 0.0001) + ix);
                 if (intersect) inside = !inside;
                 j = i;
@@ -628,10 +639,10 @@
             return inside;
         }
 
-        // sparkle particles
+        // === PARTICLE SYSTEM ===
         function spawnParticles(world, x, y) {
-            for (var i = 0; i < 8; i++) {
-                var angle = Math.random() * Math.PI * 2;
+            for (let i = 0; i < 8; i++) {
+                const angle = Math.random() * Math.PI * 2;
                 world.particles.push({
                     x: x,
                     y: y,
@@ -643,7 +654,7 @@
         }
 
         function updateParticles(world, dt) {
-            for (var p of world.particles) {
+            for (let p of world.particles) {
                 p.x += p.dx * 60 * dt;
                 p.y += p.dy * 60 * dt;
                 p.life -= dt;
@@ -651,23 +662,22 @@
             world.particles = world.particles.filter(p => p.life > 0);
         }
 
-        // update loop (chaos central)
+        // === GAME UPDATE ===
         function updatePlayState(world, dt) {
-            // warning: this function basically runs EVERYTHING, my bad
             // Input handling
             world.jumpBuffer = Math.max(0, world.jumpBuffer - dt);
             world.coyoteTimer = Math.max(0, world.coyoteTimer - dt);
             world.attackCooldown = Math.max(0, world.attackCooldown - dt);
             world.attackRect = null;
 
-            var moveDir = 0;
+            let moveDir = 0;
             if (keys['a'] || keys['ArrowLeft']) moveDir -= 1;
             if (keys['d'] || keys['ArrowRight']) moveDir += 1;
-            var crouching = keys['s'] || keys['ArrowDown'];
-            var running = keys['shift'];
+            const crouching = keys['s'] || keys['ArrowDown'];
+            const running = keys['shift'];
 
             // Movement
-            var moveSpeed = running ? RUN_SPEED : WALK_SPEED;
+            let moveSpeed = running ? RUN_SPEED : WALK_SPEED;
             if (crouching) moveSpeed *= 0.6;
             
             // Directly set velocity based on input
@@ -692,9 +702,9 @@
 
             // Horizontal collision
             world.playerX += world.playerVelX * dt;
-            var playerRect = { x: world.playerX, y: world.playerY, width: PLAYER_WIDTH, height: PLAYER_HEIGHT }; // temp hitbox thingy
+            const playerRect = { x: world.playerX, y: world.playerY, width: PLAYER_WIDTH, height: PLAYER_HEIGHT };
             
-            for (var platform of world.platforms) {
+            for (let platform of world.platforms) {
                 if (rectCollides(playerRect, platform)) {
                     if (world.playerVelX > 0) {
                         world.playerX = platform.x - PLAYER_WIDTH;
@@ -710,7 +720,7 @@
             playerRect.y = world.playerY;
             world.onGround = false;
 
-            for (var platform of world.platforms) {
+            for (let platform of world.platforms) {
                 if (rectCollides(playerRect, platform)) {
                     if (world.playerVelY > 0) {
                         world.playerY = platform.y - PLAYER_HEIGHT;
@@ -735,7 +745,7 @@
             }
 
             // Animation
-            var moving = Math.abs(world.playerVelX) > 60;
+            const moving = Math.abs(world.playerVelX) > 60;
             if (runFrames.right.length > 0) {
                 if (moving) {
                     world.animTime += dt;
@@ -748,7 +758,7 @@
 
             if (world.attacking) {
                 world.attackAnimTime += dt;
-                var currentFrame = Math.floor(world.attackAnimTime * ATTACK_ANIM_FPS);
+                const currentFrame = Math.floor(world.attackAnimTime * ATTACK_ANIM_FPS);
                 if (currentFrame >= attackFrames.right.length) {
                     world.attacking = false;
                     world.attackAnimTime = 0;
@@ -759,21 +769,21 @@
             }
 
             // Stealth logic - ONLY BUSHES work for hiding
-            var playerHidden = false;
-            var hidingStrength = 1.0;
+            let playerHidden = false;
+            let hidingStrength = 1.0;
             
-            for (var spot of world.hidingSpots) {
+            for (let spot of world.hidingSpots) {
                 if (spot.type === 'bush' && rectCollides(playerRect, spot)) {
                     playerHidden = true;
                     hidingStrength = Math.min(hidingStrength, spot.strength);
                 }
             }
 
-            var targetVisibility = 85; // this number jumps all over the place
+            let targetVisibility = 85;
             if (crouching) targetVisibility = 60;
             if (playerHidden) targetVisibility = 20 + 60 * hidingStrength;
 
-            var speedBonus = Math.min(Math.abs(world.playerVelX) / RUN_SPEED * 30, 30);
+            const speedBonus = Math.min(Math.abs(world.playerVelX) / RUN_SPEED * 30, 30);
             if (!world.onGround) targetVisibility += 10;
             if (moveDir === 0) targetVisibility += speedBonus * 0.4;
             else targetVisibility += speedBonus;
@@ -782,13 +792,13 @@
             world.visibility = Math.max(5, Math.min(100, world.visibility));
 
             // Camera
-            var cameraGoal = world.playerX + PLAYER_WIDTH / 2 - GAME_WIDTH / 2;
+            const cameraGoal = world.playerX + PLAYER_WIDTH / 2 - GAME_WIDTH / 2;
             world.cameraX += (Math.max(0, Math.min(LEVEL_WIDTH - GAME_WIDTH, cameraGoal)) - world.cameraX) * 2.5 * dt;
 
             // Attack collision
-            var attackActive = world.attacking && world.attackAnimFrame >= ATTACK_ACTIVE_FRAME;
+            const attackActive = world.attacking && world.attackAnimFrame >= ATTACK_ACTIVE_FRAME;
             if (attackActive) {
-                var slashRect = {
+                const slashRect = {
                     x: world.playerX + world.facing * (PLAYER_WIDTH / 2 + ATTACK_WIDTH / 2) - ATTACK_WIDTH / 2,
                     y: world.playerY + PLAYER_HEIGHT / 2 - ATTACK_HEIGHT / 2,
                     width: ATTACK_WIDTH,
@@ -796,7 +806,7 @@
                 };
                 world.attackRect = slashRect;
 
-                for (var enemy of world.enemies) {
+                for (let enemy of world.enemies) {
                     if (enemy.active && rectCollides(slashRect, enemy)) {
                         enemy.active = false;
                         spawnParticles(world, enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
@@ -805,10 +815,10 @@
             }
 
             // Enemy AI and detection
-            var spotted = false;
-            var playerCenter = [world.playerX + PLAYER_WIDTH / 2, world.playerY + PLAYER_HEIGHT / 2];
+            let spotted = false;
+            const playerCenter = [world.playerX + PLAYER_WIDTH / 2, world.playerY + PLAYER_HEIGHT / 2];
 
-            for (var enemy of world.enemies) {
+            for (let enemy of world.enemies) {
                 if (!enemy.active) {
                     // Update death animation
                     enemy.deathAnimTime += dt;
@@ -831,9 +841,9 @@
                 }
 
                 // Vision cone detection
-                var cone = buildVisionCone(enemy);
-                var inside = pointInPoly(playerCenter, cone);
-                var detectionRate = 0;
+                const cone = buildVisionCone(enemy);
+                const inside = pointInPoly(playerCenter, cone);
+                let detectionRate = 0;
 
                 if (inside) {
                     if (!playerHidden) {
@@ -842,13 +852,13 @@
                         spotted = true;
                         break;
                     }
-                    var visibilityFactor = world.visibility / 100;
+                    const visibilityFactor = world.visibility / 100;
                     detectionRate += 30 * visibilityFactor * 0.4;
                     if (crouching) detectionRate *= 0.6;
                 }
 
                 // Sound detection
-                var distance = Math.hypot(
+                const distance = Math.hypot(
                     enemy.x + enemy.width / 2 - playerCenter[0],
                     enemy.y + enemy.height / 2 - playerCenter[1]
                 );
@@ -876,7 +886,7 @@
 
             // Orb collection
             if (!world.caught) {
-                for (var orb of world.orbs) {
+                for (let orb of world.orbs) {
                     if (!orb.rescued && rectCollides(playerRect, orb)) {
                         orb.rescued = true;
                         world.rescued++;
@@ -895,18 +905,18 @@
             world.flashAmount = Math.max(0, world.flashAmount - dt);
         }
 
-        // drawing it all the hard way
+        // === RENDERING ===
         function drawBackground(cameraX) {
             ctx.fillStyle = COLORS.background;
             ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
             
             // Parallax layers
-            for (var layer = 0; layer < 3; layer++) {
-                var layerColor = `rgb(${10 + layer * 10}, ${25 + layer * 20}, ${20 + layer * 10})`;
-                var offset = cameraX * (0.15 * layer);
+            for (let layer = 0; layer < 3; layer++) {
+                const layerColor = `rgb(${10 + layer * 10}, ${25 + layer * 20}, ${20 + layer * 10})`;
+                const offset = cameraX * (0.15 * layer);
                 
-                for (var x = -200; x < LEVEL_WIDTH; x += 220) {
-                    var trunkX = x - offset;
+                for (let x = -200; x < LEVEL_WIDTH; x += 220) {
+                    const trunkX = x - offset;
                     ctx.fillStyle = layerColor;
                     ctx.fillRect(trunkX - cameraX, 260 + layer * 60, 30, 460);
                 }
@@ -916,18 +926,18 @@
         function drawOrb(orb, cam, currentTime) {
             if (orb.rescued) return;
             
-            var centerX = orb.x + orb.width / 2 - cam;
-            var centerY = orb.y + orb.height / 2;
+            const centerX = orb.x + orb.width / 2 - cam;
+            const centerY = orb.y + orb.height / 2;
             
             // Pulse effect
-            var pulse = 0.5 + 0.5 * Math.sin(currentTime * ORB_PULSE_SPEED + orb.pulsePhase);
-            var currentGlowSize = ORB_GLOW_SIZE * (0.8 + 0.2 * pulse);
-            var currentOrbSize = ORB_SIZE * (0.9 + 0.1 * pulse);
+            const pulse = 0.5 + 0.5 * Math.sin(currentTime * ORB_PULSE_SPEED + orb.pulsePhase);
+            const currentGlowSize = ORB_GLOW_SIZE * (0.8 + 0.2 * pulse);
+            const currentOrbSize = ORB_SIZE * (0.9 + 0.1 * pulse);
             
             // Draw outer glow (multiple layers)
-            for (var i = 3; i > 0; i--) {
-                var radius = currentGlowSize * (i / 3);
-                var alpha = (80 + 40 * pulse) * (i / 3) * 0.6 / 255;
+            for (let i = 3; i > 0; i--) {
+                const radius = currentGlowSize * (i / 3);
+                const alpha = (80 + 40 * pulse) * (i / 3) * 0.6 / 255;
                 
                 ctx.beginPath();
                 ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
@@ -949,8 +959,8 @@
             ctx.stroke();
             
             // Draw arrow marker above orb
-            var markerY = centerY - currentGlowSize * 0.7 - 20;
-            var markerAlpha = (180 + 75 * pulse) / 255;
+            const markerY = centerY - currentGlowSize * 0.7 - 20;
+            const markerAlpha = (180 + 75 * pulse) / 255;
             
             ctx.fillStyle = COLORS.orbGlow + Math.floor(markerAlpha * 255).toString(16).padStart(2, '0');
             ctx.beginPath();
@@ -965,18 +975,17 @@
         }
 
         function drawGame(world) {
-            // this is just one long art project basically
             drawBackground(world.cameraX);
-            var cam = world.cameraX;
+            const cam = world.cameraX;
 
             // Draw platforms
             ctx.fillStyle = COLORS.platform;
-            for (var platform of world.platforms) {
+            for (let platform of world.platforms) {
                 ctx.fillRect(platform.x - cam, platform.y, platform.width, platform.height);
             }
 
             // Draw hiding spots as colored rectangles
-            for (var spot of world.hidingSpots) {
+            for (let spot of world.hidingSpots) {
                 // Determine color based on type
                 if (spot.type === 'bush') {
                     ctx.fillStyle = '#2d8659'; // Green for bushes
@@ -990,7 +999,7 @@
                 
                 // Draw rounded rectangle for better appearance
                 ctx.beginPath();
-                var radius = 8;
+                const radius = 8;
                 ctx.roundRect(spot.x - cam, spot.y, spot.width, spot.height, radius);
                 ctx.fill();
             }
@@ -1000,11 +1009,11 @@
             ctx.fillRect(world.exitRect.x - cam, world.exitRect.y, world.exitRect.width, world.exitRect.height);
 
             // Draw enemies and vision cones
-            for (var enemy of world.enemies) {
+            for (let enemy of world.enemies) {
                 // Draw vision cone for active enemies
                 if (enemy.active) {
-                    var cone = buildVisionCone(enemy);
-                    var conePoints = cone.map(([x, y]) => [x - cam, y]);
+                    const cone = buildVisionCone(enemy);
+                    const conePoints = cone.map(([x, y]) => [x - cam, y]);
                     
                     ctx.fillStyle = enemy.type === 'guard' ? 
                         'rgba(255, 210, 90, 0.23)' : 
@@ -1019,59 +1028,59 @@
                 }
 
                 // Draw enemy sprite or rectangle
-                var spriteDrawn = false;
+                let spriteDrawn = false;
                 
                 if (!enemy.active && enemyDeathFrames.right.length > 0) {
                     // Death animation
-                    var orientation = enemy.dir >= 0 ? 'right' : 'left';
-                    var frames = enemyDeathFrames[orientation];
+                    const orientation = enemy.dir >= 0 ? 'right' : 'left';
+                    const frames = enemyDeathFrames[orientation];
                     if (frames && frames.length > 0) {
-                        var frame = frames[Math.min(enemy.deathAnimFrame, frames.length - 1)];
+                        const frame = frames[Math.min(enemy.deathAnimFrame, frames.length - 1)];
                         ctx.drawImage(frame, enemy.x - cam, enemy.y);
                         spriteDrawn = true;
                     }
                 } else if (enemy.active && enemy.type === 'guard' && enemyWalkingFrames.right.length > 0) {
                     // Walking animation for guards
-                    var orientation = enemy.dir >= 0 ? 'right' : 'left';
-                    var frames = enemyWalkingFrames[orientation];
+                    const orientation = enemy.dir >= 0 ? 'right' : 'left';
+                    const frames = enemyWalkingFrames[orientation];
                     if (frames && frames.length > 0) {
-                        var frame = frames[enemy.animFrame % frames.length];
+                        const frame = frames[enemy.animFrame % frames.length];
                         ctx.drawImage(frame, enemy.x - cam, enemy.y);
                         spriteDrawn = true;
                     }
                 }
                 
-                // Fallback to rectangle (the boxy dudes)
+                // Fallback to rectangle
                 if (!spriteDrawn) {
-                    var color = enemy.type === 'guard' ? COLORS.enemy : COLORS.drone;
+                    const color = enemy.type === 'guard' ? COLORS.enemy : COLORS.drone;
                     ctx.fillStyle = enemy.active ? color : color + '99';
                     ctx.fillRect(enemy.x - cam, enemy.y, enemy.width, enemy.height);
                 }
             }
 
             // Draw orbs
-            var currentTime = performance.now() / 1000;
-            for (var orb of world.orbs) {
+            const currentTime = performance.now() / 1000;
+            for (let orb of world.orbs) {
                 drawOrb(orb, cam, currentTime);
             }
 
             // Draw player
-            var spriteDrawn = false;
-            var orientation = world.facing >= 0 ? 'right' : 'left';
+            let spriteDrawn = false;
+            const orientation = world.facing >= 0 ? 'right' : 'left';
             
             if (world.caught && hurtFrames.right.length > 0) {
-                var frames = hurtFrames[orientation];
-                var animIndex = Math.floor((performance.now() * HURT_ANIM_FPS / 1000)) % frames.length;
+                const frames = hurtFrames[orientation];
+                const animIndex = Math.floor((performance.now() * HURT_ANIM_FPS / 1000)) % frames.length;
                 ctx.drawImage(frames[animIndex], world.playerX - cam, world.playerY);
                 spriteDrawn = true;
             } else if (world.attacking && attackFrames.right.length > 0) {
-                var frames = attackFrames[orientation];
-                var idx = Math.min(world.attackAnimFrame, frames.length - 1);
+                const frames = attackFrames[orientation];
+                const idx = Math.min(world.attackAnimFrame, frames.length - 1);
                 ctx.drawImage(frames[idx], world.playerX - cam, world.playerY);
                 spriteDrawn = true;
             } else if (runFrames.right.length > 0) {
-                var frames = runFrames[orientation];
-                var frame = frames[world.animFrame % frames.length];
+                const frames = runFrames[orientation];
+                const frame = frames[world.animFrame % frames.length];
                 ctx.drawImage(frame, world.playerX - cam, world.playerY);
                 spriteDrawn = true;
             }
@@ -1082,8 +1091,8 @@
             }
 
             // Draw particles
-            for (var p of world.particles) {
-                var alpha = p.life;
+            for (let p of world.particles) {
+                const alpha = p.life;
                 ctx.fillStyle = COLORS.orbGlow + Math.floor(alpha * 255).toString(16).padStart(2, '0');
                 ctx.beginPath();
                 ctx.arc(p.x - cam, p.y, 3, 0, Math.PI * 2);
@@ -1133,9 +1142,9 @@
 
             // Tutorial hints
             if (world.isTutorial) {
-                for (var hint of world.tutorialHints) {
+                for (let hint of world.tutorialHints) {
                     ctx.font = '20px Arial';
-                    var textWidth = ctx.measureText(hint.text).width;
+                    const textWidth = ctx.measureText(hint.text).width;
                     
                     ctx.fillStyle = '#0f1923';
                     ctx.fillRect(hint.x - 8, hint.y - 8, textWidth + 16, 36);
@@ -1151,44 +1160,44 @@
             
             ctx.fillStyle = '#dce6e6';
             ctx.font = '54px Arial';
-            var titleText = "Whispers of the Canopy";
-            var titleWidth = ctx.measureText(titleText).width;
+            const titleText = "Whispers of the Canopy";
+            const titleWidth = ctx.measureText(titleText).width;
             ctx.fillText(titleText, GAME_WIDTH / 2 - titleWidth / 2, GAME_HEIGHT / 2 - 80);
             
             ctx.font = '26px Arial';
-            var promptText = "Press ENTER to start";
-            var promptWidth = ctx.measureText(promptText).width;
+            const promptText = "Press ENTER to start";
+            const promptWidth = ctx.measureText(promptText).width;
             ctx.fillText(promptText, GAME_WIDTH / 2 - promptWidth / 2, GAME_HEIGHT / 2);
         }
 
         function drawCaught() {
             ctx.fillStyle = '#f07878';
             ctx.font = '54px Arial';
-            var caughtText = "Caught!";
-            var caughtWidth = ctx.measureText(caughtText).width;
+            const caughtText = "Caught!";
+            const caughtWidth = ctx.measureText(caughtText).width;
             ctx.fillText(caughtText, GAME_WIDTH / 2 - caughtWidth / 2, GAME_HEIGHT / 2 - 60);
             
             ctx.font = '26px Arial';
-            var promptText = "Press R to retry";
-            var promptWidth = ctx.measureText(promptText).width;
+            const promptText = "Press R to retry";
+            const promptWidth = ctx.measureText(promptText).width;
             ctx.fillText(promptText, GAME_WIDTH / 2 - promptWidth / 2, GAME_HEIGHT / 2);
         }
 
         function drawWin(world) {
-            var winText = world && world.isTutorial ? 
+            const winText = world && world.isTutorial ? 
                 "Tutorial complete!" : 
                 "The forest is safe... for now";
-            var promptText = world && world.isTutorial ? 
+            const promptText = world && world.isTutorial ? 
                 "Press ENTER to begin the real mission" : 
                 "Press ENTER to play again";
             
             ctx.fillStyle = '#c8ffc8';
             ctx.font = '54px Arial';
-            var winWidth = ctx.measureText(winText).width;
+            const winWidth = ctx.measureText(winText).width;
             ctx.fillText(winText, GAME_WIDTH / 2 - winWidth / 2, GAME_HEIGHT / 2 - 60);
             
             ctx.font = '26px Arial';
-            var promptWidth = ctx.measureText(promptText).width;
+            const promptWidth = ctx.measureText(promptText).width;
             ctx.fillText(promptText, GAME_WIDTH / 2 - promptWidth / 2, GAME_HEIGHT / 2);
         }
 
@@ -1198,29 +1207,29 @@
             
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 36px Arial';
-            var loadingText = `Loading Sprites... ${spritesLoaded}/${totalSprites}`;
-            var textWidth = ctx.measureText(loadingText).width;
+            const loadingText = `Loading Sprites... ${spritesLoaded}/${totalSprites}`;
+            const textWidth = ctx.measureText(loadingText).width;
             ctx.fillText(loadingText, GAME_WIDTH / 2 - textWidth / 2, GAME_HEIGHT / 2);
             
             // Draw loading bar
-            var barWidth = 400;
-            var barHeight = 30;
-            var barX = GAME_WIDTH / 2 - barWidth / 2;
-            var barY = GAME_HEIGHT / 2 + 40;
+            const barWidth = 400;
+            const barHeight = 30;
+            const barX = GAME_WIDTH / 2 - barWidth / 2;
+            const barY = GAME_HEIGHT / 2 + 40;
             
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 2;
             ctx.strokeRect(barX, barY, barWidth, barHeight);
             
             ctx.fillStyle = COLORS.stealth;
-            var progress = spritesLoaded / totalSprites;
+            const progress = spritesLoaded / totalSprites;
             ctx.fillRect(barX + 2, barY + 2, (barWidth - 4) * progress, barHeight - 4);
         }
 
-        // button/key listeners cuz we need them
+        // === EVENT HANDLERS ===
         document.addEventListener('keydown', (e) => {
             // Normalize key to lowercase for consistency
-            var key = e.key.toLowerCase();
+            const key = e.key.toLowerCase();
             keys[key] = true;
             keys[e.key] = true; // Also store original case
 
@@ -1255,7 +1264,7 @@
 
         document.addEventListener('keyup', (e) => {
             // Clear both lowercase and original case
-            var key = e.key.toLowerCase();
+            const key = e.key.toLowerCase();
             keys[key] = false;
             keys[e.key] = false;
         });
@@ -1274,14 +1283,14 @@
             }
         });
 
-        // the forever loop
+        // === GAME LOOP ===
         function gameLoop(currentTime) {
             // Calculate delta time
-            var dt = (currentTime - lastTime) / 1000;
+            let dt = (currentTime - lastTime) / 1000;
             lastTime = currentTime;
             
             // Cap delta time to prevent large jumps
-            var maxDt = (1.0 / FPS) * 2;
+            const maxDt = (1.0 / FPS) * 2;
             dt = Math.min(dt, maxDt);
 
             // Update game state
@@ -1325,19 +1334,19 @@
             requestAnimationFrame(gameLoop);
         }
 
-        // boot up and hope nothing crashes
+        // === INITIALIZATION ===
         // Wait for DOM to be fully loaded
         window.addEventListener('DOMContentLoaded', () => {
-            console.log('dom ready, guess we start now');
-            console.log('canvas thing:', canvas);
-            console.log('context thing:', ctx);
+            console.log('DOM loaded, initializing game...');
+            console.log('Canvas:', canvas);
+            console.log('Context:', ctx);
             
             initSprites();
             
             // Fallback: Force start after 5 seconds if loading fails
             setTimeout(() => {
                 if (gameState === 'loading') {
-                    console.warn('ok 5 seconds passed so im giving up and starting anyway');
+                    console.warn('Sprite loading timeout - forcing game start');
                     gameState = 'title';
                 }
             }, 5000);

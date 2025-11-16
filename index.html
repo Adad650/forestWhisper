@@ -63,12 +63,14 @@
         const JUMP_BUFFER = 0.16;
         const WALK_SPEED = 240;
         const RUN_SPEED = 340;
+        const MAX_HORIZONTAL_GAP = 240;
+        const MAX_JUMP_HEIGHT = (JUMP_FORCE * JUMP_FORCE) / (2 * GRAVITY);
         // Player constants
-        const PLAYER_WIDTH = 42;
-        const PLAYER_HEIGHT = 80;
+        const PLAYER_WIDTH = 48;
+        const PLAYER_HEIGHT = 92;
         // Hitbox is smaller than the sprite for better gameplay
-        const PLAYER_HITBOX_OFFSET_X = 6;  // Pixels from left/right
-        const PLAYER_HITBOX_OFFSET_TOP = 10; // Pixels from top
+        const PLAYER_HITBOX_OFFSET_X = 8;  // Pixels from left/right
+        const PLAYER_HITBOX_OFFSET_TOP = 12; // Pixels from top
         const PLAYER_HITBOX_OFFSET_BOTTOM = 4; // Pixels from bottom
         
         // Animation constants
@@ -101,6 +103,50 @@
         const ORB_SIZE = 20;
         const ORB_GLOW_SIZE = 35;
         const ORB_PULSE_SPEED = 3.0;
+        const FIREFLY_COUNT = 20;
+        const FIREFLY_MIN_SPEED = 16;
+        const FIREFLY_MAX_SPEED = 48;
+        const FIREFLY_MIN_SIZE = 3.2;
+        const FIREFLY_MAX_SIZE = 6.1;
+        const FIREFLY_WRAP_MARGIN = 60;
+        const FOG_HEIGHT = GAME_HEIGHT * 0.48;
+        const MISSION_LOG_DURATION = 4.2;
+        const MAX_MISSION_LOG_LINES = 4;
+        const LEAF_COUNT = 22;
+        const LEAF_SPEED_MIN = 22;
+        const LEAF_SPEED_MAX = 60;
+        const LEAF_LENGTH_MIN = 12;
+        const LEAF_LENGTH_MAX = 26;
+        
+        function horizontalGap(a, b) {
+            if (a.x + a.width < b.x) return b.x - (a.x + a.width);
+            if (b.x + b.width < a.x) return a.x - (b.x + b.width);
+            return 0;
+        }
+
+        function canLinkPlatforms(a, b) {
+            const vertical = Math.abs(a.y - b.y);
+            if (horizontalGap(a, b) > MAX_HORIZONTAL_GAP) return false;
+            return vertical <= MAX_JUMP_HEIGHT + 42;
+        }
+
+        function getReachablePlatforms(platforms) {
+            const reachable = new Set();
+            if (!platforms || platforms.length === 0) return reachable;
+            const queue = [platforms[0]];
+            reachable.add(platforms[0]);
+            while (queue.length > 0) {
+                const current = queue.shift();
+                for (let candidate of platforms) {
+                    if (reachable.has(candidate)) continue;
+                    if (canLinkPlatforms(current, candidate)) {
+                        reachable.add(candidate);
+                        queue.push(candidate);
+                    }
+                }
+            }
+            return reachable;
+        }
 
         // Colors
         const COLORS = {
@@ -117,6 +163,14 @@
             orbGlow: '#64b4ff',
             orbCore: '#dcf0ff',
             platform: '#1e2823'
+        };
+
+        const STEALTH_STATES = {
+            idle: { label: 'Still', color: '#9cd2ff' },
+            moving: { label: 'Moving', color: '#f0d86c' },
+            hustle: { label: 'Hustling', color: '#ff9c40' },
+            hidden: { label: 'Hidden', color: '#3cc878' },
+            exposed: { label: 'Exposed', color: '#f26a6a' }
         };
 
         // Canvas setup
@@ -405,12 +459,14 @@
         function makeOrbs(rng, platforms) {
             const orbs = [];
             const perches = platforms.filter(p => p.height <= 20 && p.width > 40 && p.y <= 620);
-            const validPerches = perches.length > 0 ? perches : [platforms[0]];
+            const reachable = getReachablePlatforms(platforms);
+            const reachablePerches = perches.filter(p => reachable.has(p));
+            const perchCandidates = reachablePerches.length > 0 ? reachablePerches : (perches.length > 0 ? perches : [platforms[0]]);
             let attempts = 0;
 
             while (orbs.length < ORB_COUNT && attempts < ORB_COUNT * 4) {
                 attempts++;
-                const platform = rng.choice(validPerches);
+                const platform = rng.choice(perchCandidates);
                 const left = platform.x + 10;
                 const right = platform.x + platform.width - 40;
                 
@@ -429,6 +485,88 @@
             }
 
             return orbs;
+        }
+
+        function makeFireflies(rng) {
+            const fireflies = [];
+            for (let i = 0; i < FIREFLY_COUNT; i++) {
+                fireflies.push({
+                    x: rng.uniform(0, LEVEL_WIDTH),
+                    y: rng.uniform(130, 520),
+                    vx: rng.uniform(-FIREFLY_MAX_SPEED, FIREFLY_MAX_SPEED),
+                    vy: rng.uniform(-12, 12),
+                    size: rng.uniform(FIREFLY_MIN_SIZE, FIREFLY_MAX_SIZE),
+                    pulse: rng.uniform(0, Math.PI * 2)
+                });
+            }
+            return fireflies;
+        }
+
+        function makeLeaves(rng) {
+            const leaves = [];
+            for (let i = 0; i < LEAF_COUNT; i++) {
+                leaves.push({
+                    x: rng.uniform(0, LEVEL_WIDTH),
+                    y: rng.uniform(40, 620),
+                    speed: rng.uniform(LEAF_SPEED_MIN, LEAF_SPEED_MAX),
+                    length: rng.uniform(LEAF_LENGTH_MIN, LEAF_LENGTH_MAX),
+                    sway: rng.uniform(0, Math.PI * 2),
+                    direction: rng.random() < 0.5 ? -1 : 1
+                });
+            }
+            return leaves;
+        }
+
+        function updateFireflies(world, dt) {
+            if (!world.fireflies) return;
+            for (let fly of world.fireflies) {
+                fly.x += fly.vx * dt;
+                fly.y += fly.vy * dt;
+                fly.pulse += dt * 1.5;
+
+                if (fly.x < -FIREFLY_WRAP_MARGIN) fly.x = LEVEL_WIDTH + FIREFLY_WRAP_MARGIN;
+                else if (fly.x > LEVEL_WIDTH + FIREFLY_WRAP_MARGIN) fly.x = -FIREFLY_WRAP_MARGIN;
+
+                if (fly.y < 110) fly.y = 110;
+                if (fly.y > 560) fly.y = 560;
+            }
+            world.fogShift += dt * 0.35;
+        }
+
+        function updateLeaves(world, dt) {
+            if (!world.leaves) return;
+            const rng = world.rng || new SeededRandom();
+            for (let leaf of world.leaves) {
+                leaf.x += leaf.direction * leaf.speed * 0.18 * dt;
+                leaf.y += (8 + Math.sin(leaf.sway) * 4) * dt;
+                leaf.sway += dt * 1.1;
+
+                if (leaf.y > 660) {
+                    leaf.y = rng.uniform(40, 160);
+                    leaf.x = rng.uniform(-40, LEVEL_WIDTH + 40);
+                }
+                if (leaf.x < -40) leaf.x = LEVEL_WIDTH + 40;
+                else if (leaf.x > LEVEL_WIDTH + 40) leaf.x = -40;
+            }
+        }
+
+        function pushMissionLog(world, text) {
+            if (!text) return;
+            if (!world.missionLog) world.missionLog = [];
+            world.missionLog.unshift({ text, timer: MISSION_LOG_DURATION });
+            if (world.missionLog.length > MAX_MISSION_LOG_LINES) {
+                world.missionLog.pop();
+            }
+        }
+
+        function updateMissionLog(world, dt) {
+            if (!world.missionLog) return;
+            for (let i = world.missionLog.length - 1; i >= 0; i--) {
+                world.missionLog[i].timer -= dt;
+                if (world.missionLog[i].timer <= 0) {
+                    world.missionLog.splice(i, 1);
+                }
+            }
         }
 
         function makeEnemies(rng, platforms) {
@@ -572,6 +710,8 @@
             return {
                 playerX: 80,
                 playerY: 640 - PLAYER_HEIGHT,
+                prevPlayerX: 80,
+                prevPlayerY: 640 - PLAYER_HEIGHT,
                 playerVelX: 0,
                 playerVelY: 0,
                 facing: 1,
@@ -585,6 +725,9 @@
                 attackAnimFrame: 0,
                 attackAnimTime: 0,
                 attackRect: null,
+                cameraX: 0,
+                prevCameraX: 0,
+                rng: rng,
                 
                 platforms: levelData.platforms,
                 hidingSpots: levelData.hidingSpots,
@@ -592,11 +735,22 @@
                 enemies: levelData.enemies,
                 exitRect: levelData.exitRect,
                 tutorialHints: levelData.tutorialHints,
-                
+
+                fireflies: makeFireflies(rng),
+                leaves: makeLeaves(rng),
+                fogShift: rng.uniform(0, Math.PI * 2),
+                missionLog: [
+                    {
+                        text: tutorial ? 'Tutorial log: learn to move quietly in the leaves.' : 'Mission log: keep the canopy calm while you collect light.',
+                        timer: MISSION_LOG_DURATION
+                    }
+                ],
+
                 visibility: 35,
                 alertMeter: 0,
+                alertLogCooldown: 0,
                 rescued: 0,
-                cameraX: 0,
+                stealthState: 'idle',
                 caught: false,
                 win: false,
                 flashAmount: 0,
@@ -678,6 +832,14 @@
 
         // === GAME UPDATE ===
         function updatePlayState(world, dt) {
+            const prevX = world.playerX;
+            const prevY = world.playerY;
+            const prevCam = world.cameraX;
+
+            world.prevPlayerX = prevX;
+            world.prevPlayerY = prevY;
+            world.prevCameraX = prevCam;
+
             // Input handling
             world.jumpBuffer = Math.max(0, world.jumpBuffer - dt);
             world.coyoteTimer = Math.max(0, world.coyoteTimer - dt);
@@ -689,6 +851,7 @@
             if (keys['d'] || keys['ArrowRight']) moveDir += 1;
             const crouching = keys['s'] || keys['ArrowDown'];
             const running = keys['shift'];
+            const wasCaught = world.caught;
 
             // Movement
             let moveSpeed = running ? RUN_SPEED : WALK_SPEED;
@@ -762,10 +925,6 @@
             // Smooth movement detection with some threshold
             const moving = Math.abs(world.playerVelX) > 10; // Reduced threshold for smoother transitions
             
-            // Store previous positions for interpolation
-            world.prevPlayerX = world.prevPlayerX || world.playerX;
-            world.prevPlayerY = world.prevPlayerY || world.playerY;
-            
             // Handle attack cooldown
             if (world.attackCooldown > 0) {
                 world.attackCooldown -= dt;
@@ -823,10 +982,6 @@
                 world.animProgress = 0;
             }
             
-            // Store previous positions for interpolation
-            world.prevPlayerX = world.playerX;
-            world.prevPlayerY = world.playerY;
-
             // Stealth logic - ONLY BUSHES work for hiding
             let playerHidden = false;
             let hidingStrength = 1.0;
@@ -842,6 +997,13 @@
             if (crouching) targetVisibility = 60;
             if (playerHidden) targetVisibility = 20 + 60 * hidingStrength;
 
+            let stealthState = 'idle';
+            if (world.caught) stealthState = 'exposed';
+            else if (playerHidden) stealthState = 'hidden';
+            else if (Math.abs(world.playerVelX) > RUN_SPEED * 0.7) stealthState = 'hustle';
+            else if (Math.abs(world.playerVelX) > WALK_SPEED * 0.4) stealthState = 'moving';
+            world.stealthState = stealthState;
+
             const speedBonus = Math.min(Math.abs(world.playerVelX) / RUN_SPEED * 30, 30);
             if (!world.onGround) targetVisibility += 10;
             if (moveDir === 0) targetVisibility += speedBonus * 0.4;
@@ -853,6 +1015,9 @@
             // Camera
             const cameraGoal = world.playerX + PLAYER_WIDTH / 2 - GAME_WIDTH / 2;
             world.cameraX += (Math.max(0, Math.min(LEVEL_WIDTH - GAME_WIDTH, cameraGoal)) - world.cameraX) * 2.5 * dt;
+
+            updateFireflies(world, dt);
+            updateLeaves(world, dt);
 
             // Attack collision
             const attackActive = world.attacking && world.attackAnimFrame >= ATTACK_ACTIVE_FRAME;
@@ -941,6 +1106,16 @@
                     world.caught = true;
                     world.flashAmount = 1.0;
                 }
+                if (world.alertMeter > 85 && world.alertLogCooldown <= 0) {
+                    pushMissionLog(world, 'Alert level climbing. Stay still.');
+                    world.alertLogCooldown = 3;
+                }
+            }
+
+            world.alertLogCooldown = Math.max(0, world.alertLogCooldown - dt);
+
+            if (world.caught && !wasCaught) {
+                pushMissionLog(world, 'Alert! Detection triggered.');
             }
 
             // Orb collection
@@ -949,6 +1124,7 @@
                     if (!orb.rescued && rectCollides(playerRect, orb)) {
                         orb.rescued = true;
                         world.rescued++;
+                        pushMissionLog(world, `Orb secured (${world.rescued}/${world.orbs.length})`);
                         spawnParticles(world, orb.x + orb.width / 2, orb.y + orb.height / 2);
                     }
                 }
@@ -957,11 +1133,13 @@
             updateParticles(world, dt);
 
             // Win condition
-            if (!world.caught && world.rescued === world.orbs.length && rectCollides(playerRect, world.exitRect)) {
+            if (!world.caught && !world.win && world.rescued === world.orbs.length && rectCollides(playerRect, world.exitRect)) {
                 world.win = true;
+                pushMissionLog(world, 'Extraction point reached. Mission success imminent.');
             }
 
             world.flashAmount = Math.max(0, world.flashAmount - dt);
+            updateMissionLog(world, dt);
         }
 
         // === RENDERING ===
@@ -984,7 +1162,7 @@
 
         function drawOrb(orb, cam, currentTime) {
             if (orb.rescued) return;
-            
+
             const centerX = orb.x + orb.width / 2 - cam;
             const centerY = orb.y + orb.height / 2;
             
@@ -1033,9 +1211,132 @@
             ctx.fill();
         }
 
-        function drawGame(world) {
-            drawBackground(world.cameraX);
-            const cam = world.cameraX;
+        function drawLeaves(world, cam) {
+            if (!world.leaves) return;
+            ctx.lineWidth = 1.4;
+            for (let leaf of world.leaves) {
+                const x = leaf.x - cam;
+                const y = leaf.y;
+                const sway = Math.sin(leaf.sway * 0.7);
+                const dx = leaf.direction * (12 + sway * 8);
+                const dy = leaf.length;
+                const alpha = Math.max(0.25, Math.min(0.72, 0.4 + Math.sin(leaf.sway * 0.9) * 0.25));
+                ctx.strokeStyle = `rgba(166, 214, 194, ${alpha})`;
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(x + dx, y + dy);
+                ctx.stroke();
+            }
+            ctx.lineWidth = 1;
+        }
+
+        function drawStealthState(world) {
+            const stateKey = world.stealthState || 'idle';
+            const state = STEALTH_STATES[stateKey] || STEALTH_STATES.idle;
+            const x = 30;
+            const y = 110;
+            const width = 220;
+            const height = 28;
+            ctx.fillStyle = 'rgba(12, 18, 32, 0.88)';
+            ctx.fillRect(x, y, width, height);
+            ctx.strokeStyle = state.color;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, width, height);
+            ctx.fillStyle = state.color;
+            ctx.font = '16px Arial';
+            ctx.fillText(`Stealth: ${state.label}`, x + 10, y + 20);
+        }
+
+        function drawExitPointer(world, cam, renderPlayerX, currentTime) {
+            if (!world.exitRect) return;
+            const playerCenter = renderPlayerX + PLAYER_WIDTH / 2;
+            const exitCenter = world.exitRect.x + world.exitRect.width / 2;
+            const direction = exitCenter - playerCenter;
+            const arrowDir = direction >= 0 ? 1 : -1;
+            const arrowX = GAME_WIDTH - 72;
+            const arrowY = 48;
+            const pulse = 0.6 + 0.2 * Math.sin(currentTime * 2);
+            ctx.fillStyle = `rgba(174, 245, 225, ${pulse})`;
+            ctx.beginPath();
+            ctx.moveTo(arrowX, arrowY);
+            ctx.lineTo(arrowX + arrowDir * 22, arrowY - 12);
+            ctx.lineTo(arrowX + arrowDir * 32, arrowY);
+            ctx.lineTo(arrowX + arrowDir * 22, arrowY + 12);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = '#d4f0ee';
+            ctx.font = '15px Arial';
+            const dist = Math.max(0, Math.round(Math.abs(direction)));
+            const textX = arrowX - 120 + (arrowDir > 0 ? 0 : 40);
+            ctx.fillText(`${dist} px to exit`, textX, arrowY + 34);
+        }
+
+        function drawFog(world) {
+            const fogHeight = FOG_HEIGHT;
+            const pulse = 0.15 * Math.sin(world.fogShift);
+            const gradient = ctx.createLinearGradient(0, 0, 0, fogHeight);
+            const topAlpha = Math.min(0.9, 0.5 + pulse);
+            const bottomAlpha = Math.max(0.1, 0.25 + pulse * 0.6);
+            gradient.addColorStop(0, `rgba(8, 14, 22, ${topAlpha})`);
+            gradient.addColorStop(1, `rgba(14, 24, 34, ${bottomAlpha})`);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, GAME_WIDTH, fogHeight);
+            ctx.fillStyle = `rgba(255, 255, 255, ${0.03 + Math.abs(pulse) * 0.02})`;
+            ctx.fillRect(0, 6, GAME_WIDTH, 4);
+        }
+
+        function drawFireflies(world, cam) {
+            for (let fly of world.fireflies) {
+                const glow = 0.4 + 0.4 * Math.sin(fly.pulse);
+                const radius = Math.max(2.2, fly.size + 1.2 * Math.sin(fly.pulse * 1.5));
+                ctx.fillStyle = `rgba(186, 255, 225, ${glow})`;
+                ctx.beginPath();
+                ctx.arc(fly.x - cam, fly.y, radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function drawMissionLog(world) {
+            if (!world.missionLog || world.missionLog.length === 0) return;
+            const logWidth = 310;
+            const entryHeight = 22;
+            const headerHeight = 24;
+            const padding = 14;
+            const height = padding + headerHeight + world.missionLog.length * entryHeight + padding / 2;
+            const x = GAME_WIDTH - logWidth - 28;
+            const y = 80;
+
+            ctx.save();
+            ctx.fillStyle = 'rgba(12, 18, 32, 0.86)';
+            ctx.strokeStyle = 'rgba(120, 210, 190, 0.75)';
+            ctx.lineWidth = 2;
+            ctx.roundRect(x, y, logWidth, height, 12);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.font = '18px Arial';
+            ctx.fillStyle = '#d3f7ec';
+            ctx.fillText('Mission Log', x + padding, y + headerHeight);
+            ctx.font = '15px Arial';
+            for (let i = 0; i < world.missionLog.length; i++) {
+                const entry = world.missionLog[i];
+                const alpha = Math.max(0, Math.min(1, entry.timer / MISSION_LOG_DURATION));
+                ctx.fillStyle = `rgba(230, 255, 240, ${alpha})`;
+                const lineY = y + headerHeight + 6 + (i + 1) * entryHeight;
+                ctx.fillText(entry.text, x + padding, lineY);
+            }
+            ctx.restore();
+        }
+
+        function drawGame(world, alpha) {
+            const blend = Math.max(0, Math.min(1, alpha !== undefined ? alpha : 1));
+            const cam = (world.prevCameraX || 0) + (world.cameraX - (world.prevCameraX || 0)) * blend;
+            const renderPlayerX = (world.prevPlayerX || world.playerX) + (world.playerX - (world.prevPlayerX || world.playerX)) * blend;
+            const renderPlayerY = (world.prevPlayerY || world.playerY) + (world.playerY - (world.prevPlayerY || world.playerY)) * blend;
+            drawBackground(cam);
+            drawFog(world);
+            drawLeaves(world, cam);
+            drawFireflies(world, cam);
 
             // Draw platforms
             ctx.fillStyle = COLORS.platform;
@@ -1123,30 +1424,34 @@
                 drawOrb(orb, cam, currentTime);
             }
 
+            drawExitPointer(world, cam, renderPlayerX, currentTime);
+
             // Draw player
             let spriteDrawn = false;
             const orientation = world.facing >= 0 ? 'right' : 'left';
+            const playerDrawX = renderPlayerX - cam;
+            const playerDrawY = renderPlayerY;
             
             if (world.caught && hurtFrames.right.length > 0) {
                 const frames = hurtFrames[orientation];
                 const animIndex = Math.floor((performance.now() * HURT_ANIM_FPS / 1000)) % frames.length;
-                ctx.drawImage(frames[animIndex], world.playerX - cam, world.playerY);
+                ctx.drawImage(frames[animIndex], playerDrawX, playerDrawY);
                 spriteDrawn = true;
             } else if (world.attacking && attackFrames.right.length > 0) {
                 const frames = attackFrames[orientation];
                 const idx = Math.min(world.attackAnimFrame, frames.length - 1);
-                ctx.drawImage(frames[idx], world.playerX - cam, world.playerY);
+                ctx.drawImage(frames[idx], playerDrawX, playerDrawY);
                 spriteDrawn = true;
             } else if (runFrames.right.length > 0) {
                 const frames = runFrames[orientation];
                 const frame = frames[world.animFrame % frames.length];
-                ctx.drawImage(frame, world.playerX - cam, world.playerY);
+                ctx.drawImage(frame, playerDrawX, playerDrawY);
                 spriteDrawn = true;
             }
             
             if (!spriteDrawn) {
                 ctx.fillStyle = COLORS.player;
-                ctx.fillRect(world.playerX - cam, world.playerY, PLAYER_WIDTH, PLAYER_HEIGHT);
+                ctx.fillRect(playerDrawX, playerDrawY, PLAYER_WIDTH, PLAYER_HEIGHT);
             }
 
             // Draw particles
@@ -1187,6 +1492,10 @@
             ctx.font = '20px Arial';
             ctx.fillText("A/D move | SPACE jump | S hide | Click attack | R retry", 30, GAME_HEIGHT - 20);
 
+            drawMissionLog(world);
+
+            drawStealthState(world);
+
             // Alert warning overlay
             if (world.alertMeter > 85) {
                 ctx.fillStyle = 'rgba(200, 50, 50, 0.2)';
@@ -1200,7 +1509,7 @@
             }
 
             // Tutorial hints
-            if (world.isTutorial) {
+            if (world.isTutorial === true) {
                 for (let hint of world.tutorialHints) {
                     ctx.font = '20px Arial';
                     const textWidth = ctx.measureText(hint.text).width;
@@ -1444,9 +1753,10 @@
                     ctx.imageSmoothingEnabled = true;
                     ctx.webkitImageSmoothingEnabled = true;
                     ctx.mozImageSmoothingEnabled = true;
-                    
+
                     // Render the game with interpolation
-                    drawGame(worldState);
+                    const renderAlpha = Math.max(0, Math.min(1, accumulator / timeStep));
+                    drawGame(worldState, renderAlpha);
                     
                     if (gameState === 'caught') {
                         drawCaught();

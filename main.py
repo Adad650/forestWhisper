@@ -8,6 +8,7 @@ import pygame
 pygame.init()
 width, height = 1280, 720
 levelWidth = 4200
+# Constants
 fps = 60
 gravity = 2400
 jumpForce = 900
@@ -18,13 +19,13 @@ runSpeed = 340
 PLAYER_JUMP = 900
 PLAYER_SPEED = 240
 PLAYER_RUN_SPEED = 340
-# Player sprite size (increased from 42x80 to 60x100)
-playerSize = (60, 100)  # Width and height of the player sprite
+# Player sprite size (a bit taller for modern feel)
+playerSize = (48, 92)  # Width and height of the player sprite
 
 # Hitbox settings (smaller than the sprite for better gameplay)
-# These are the same as before to maintain consistent hitbox size
-PLAYER_HITBOX_OFFSET_X = 9  # Pixels from left/right (scaled up proportionally)
-PLAYER_HITBOX_OFFSET_TOP = 15  # Pixels from top (scaled up proportionally)
+# Adjust hitbox to match the slightly larger body
+PLAYER_HITBOX_OFFSET_X = 10  # Pixels from left/right (scaled up proportionally)
+PLAYER_HITBOX_OFFSET_TOP = 14  # Pixels from top (scaled up proportionally)
 PLAYER_HITBOX_OFFSET_BOTTOM = 6  # Pixels from bottom (scaled up proportionally)
 
 def get_player_hitbox(x, y):
@@ -53,6 +54,14 @@ orbColor = (180, 220, 255)
 orbGlowColor = (100, 180, 255)
 orbCoreColor = (220, 240, 255)
 
+STEALTH_STATES = {
+    "idle": {"label": "Still", "color": (156, 210, 255)},
+    "moving": {"label": "Moving", "color": (240, 216, 108)},
+    "hustle": {"label": "Hustling", "color": (255, 156, 64)},
+    "hidden": {"label": "Hidden", "color": (60, 200, 120)},
+    "exposed": {"label": "Exposed", "color": (242, 106, 106)},
+}
+
 hidingSpotTemplates = [
     {"size": (110, 70), "strength": 0.3, "color": bushColor, "type": "bush", "solid": False},
     {"size": (120, 80), "strength": 0.2, "color": bushColor, "type": "bush", "solid": False},
@@ -72,6 +81,22 @@ attackActiveFrame = 3
 hurtFrameCount = 4
 hurtAnimFps = 8
 orbCount = 4
+MAX_HORIZONTAL_GAP = 240
+MAX_JUMP_HEIGHT = (jumpForce * jumpForce) / (2 * gravity)
+LEAF_COUNT = 22
+LEAF_SPEED_MIN = 22
+LEAF_SPEED_MAX = 60
+LEAF_LENGTH_MIN = 12
+LEAF_LENGTH_MAX = 26
+FIREFLY_COUNT = 20
+FIREFLY_MIN_SPEED = 16
+FIREFLY_MAX_SPEED = 48
+FIREFLY_MIN_SIZE = 3.2
+FIREFLY_MAX_SIZE = 6.1
+FIREFLY_WRAP_MARGIN = 60
+FOG_HEIGHT = int(height * 0.48)
+MISSION_LOG_DURATION = 4.2
+MAX_MISSION_LOG_LINES = 4
 enemyTargetCount = 5
 bushSheetColumns = 3
 bushSheetRows = 3
@@ -164,6 +189,39 @@ def loadBushSprites(path, columns=3, rows=3):
             frame.blit(sheet, (0, 0), rect)
             frames.append(removeWhitePixels(frame))
     return frames
+
+
+def horizontal_gap(a, b):
+    if a.right < b.left:
+        return b.left - a.right
+    if b.right < a.left:
+        return a.left - b.right
+    return 0
+
+
+def can_link_platforms(a, b):
+    if horizontal_gap(a, b) > MAX_HORIZONTAL_GAP:
+        return False
+    vertical = abs(a.top - b.top)
+    return vertical <= MAX_JUMP_HEIGHT + 40
+
+
+def get_reachable_platform_indices(platforms):
+    visible = set()
+    if not platforms:
+        return visible
+    visible.add(0)
+    queue = [0]
+    while queue:
+        idx = queue.pop(0)
+        base = platforms[idx]
+        for j, candidate in enumerate(platforms):
+            if j in visible:
+                continue
+            if can_link_platforms(base, candidate):
+                visible.add(j)
+                queue.append(j)
+    return visible
 
 
 def scaleBushSprite(width, height, rng):
@@ -359,12 +417,15 @@ def makeHidingSpots(rng, platforms):
 def makeOrbs(rng, platforms):
     orbs = []
     perches = [p for p in platforms if p.height <= 20 and p.width > 40 and p.top <= 620]
-    perches = perches or [platforms[0]]
+    platform_index_map = {id(p): idx for idx, p in enumerate(platforms)}
+    reachable = get_reachable_platform_indices(platforms)
+    reachable_perches = [p for p in perches if platform_index_map.get(id(p)) in reachable]
+    perch_candidates = reachable_perches or perches or [platforms[0]]
     attempts = 0
 
     while len(orbs) < orbCount and attempts < orbCount * 4:
         attempts += 1
-        platform = rng.choice(perches)
+        platform = rng.choice(perch_candidates)
         left = platform.left + 10
         right = platform.right - 40
         if right <= left:
@@ -378,6 +439,96 @@ def makeOrbs(rng, platforms):
         })
 
     return orbs
+
+
+def make_leaves(rng):
+    leaves = []
+    for _ in range(LEAF_COUNT):
+        leaves.append(
+            {
+                "x": rng.uniform(0, levelWidth),
+                "y": rng.uniform(40, 620),
+                "speed": rng.uniform(LEAF_SPEED_MIN, LEAF_SPEED_MAX),
+                "length": rng.uniform(LEAF_LENGTH_MIN, LEAF_LENGTH_MAX),
+                "sway": rng.uniform(0, math.tau),
+                "direction": 1 if rng.random() < 0.5 else -1,
+            }
+        )
+    return leaves
+
+
+def make_fireflies(rng):
+    fly_list = []
+    for _ in range(FIREFLY_COUNT):
+        fly_list.append({
+            "x": rng.uniform(0, levelWidth),
+            "y": rng.uniform(130, 520),
+            "vx": rng.uniform(-FIREFLY_MAX_SPEED, FIREFLY_MAX_SPEED),
+            "vy": rng.uniform(-12, 12),
+            "size": rng.uniform(FIREFLY_MIN_SIZE, FIREFLY_MAX_SIZE),
+            "pulse": rng.uniform(0, math.tau),
+        })
+    return fly_list
+
+
+def update_fireflies(world, dt):
+    flies = world.get("fireflies")
+    if not flies:
+        return
+    for fly in flies:
+        fly["x"] += fly["vx"] * dt
+        fly["y"] += fly["vy"] * dt
+        fly["pulse"] += dt * 1.5
+
+        if fly["x"] < -FIREFLY_WRAP_MARGIN:
+            fly["x"] = levelWidth + FIREFLY_WRAP_MARGIN
+        elif fly["x"] > levelWidth + FIREFLY_WRAP_MARGIN:
+            fly["x"] = -FIREFLY_WRAP_MARGIN
+
+        if fly["y"] < 110:
+            fly["y"] = 110
+        elif fly["y"] > 560:
+            fly["y"] = 560
+
+    world["fog_shift"] = world.get("fog_shift", 0.0) + dt * 0.35
+
+
+def update_leaves(world, dt):
+    leaves = world.get("leaves")
+    if not leaves:
+        return
+    rng = world.get("rng") or random.Random()
+    for leaf in leaves:
+        leaf["x"] += leaf["direction"] * leaf["speed"] * 0.18 * dt
+        leaf["y"] += (8 + math.sin(leaf["sway"]) * 4) * dt
+        leaf["sway"] += dt * 1.1
+
+        if leaf["y"] > 660:
+            leaf["y"] = rng.uniform(40, 160)
+            leaf["x"] = rng.uniform(-40, levelWidth + 40)
+        if leaf["x"] < -40:
+            leaf["x"] = levelWidth + 40
+        elif leaf["x"] > levelWidth + 40:
+            leaf["x"] = -40
+
+
+def push_mission_log(world, text):
+    if not text:
+        return
+    log = world.setdefault("missionLog", [])
+    log.insert(0, {"text": text, "timer": MISSION_LOG_DURATION})
+    if len(log) > MAX_MISSION_LOG_LINES:
+        log.pop()
+
+
+def update_mission_log(world, dt):
+    log = world.get("missionLog")
+    if not log:
+        return
+    for idx in range(len(log) - 1, -1, -1):
+        log[idx]["timer"] -= dt
+        if log[idx]["timer"] <= 0:
+            log.pop(idx)
 
 
 def makeEnemies(rng, platforms):
@@ -568,6 +719,18 @@ def resetWorld(seed=None, tutorial=False):
         "win": False,
         "flashAmount": 0.0,
         "particles": [],
+        "rng": rng,
+        "leaves": make_leaves(rng),
+        "fireflies": make_fireflies(rng),
+        "fog_shift": rng.uniform(0.0, math.tau),
+        "missionLog": [
+            {
+                "text": "Tutorial log: learn to move quietly in the leaves." if tutorial else "Mission log: keep the canopy calm while you collect light.",
+                "timer": MISSION_LOG_DURATION
+            }
+        ],
+        "alertLogCooldown": 0.0,
+        "stealthState": "idle",
         "tutorialHints": levelData.get("tutorialHints", []),
         "isTutorial": tutorial,
     }
@@ -631,6 +794,7 @@ def updatePlayState(world, keys, events, dt):
     world["coyoteTimer"] = max(0.0, world["coyoteTimer"] - dt)
     world["attackCooldown"] = max(0.0, world["attackCooldown"] - dt)
     world["attackRect"] = None
+    was_caught = world.get("caught", False)
 
     moveDir = 0
     if keys[pygame.K_a] or keys[pygame.K_LEFT]:
@@ -760,6 +924,17 @@ def updatePlayState(world, keys, events, dt):
             playerHidden = True
             hidingStrength = min(hidingStrength, spot["strength"])
 
+    if world["caught"]:
+        world["stealthState"] = "exposed"
+    elif playerHidden:
+        world["stealthState"] = "hidden"
+    elif abs(world["playerVel"].x) > runSpeed * 0.7:
+        world["stealthState"] = "hustle"
+    elif abs(world["playerVel"].x) > walkSpeed * 0.4:
+        world["stealthState"] = "moving"
+    else:
+        world["stealthState"] = "idle"
+
     targetVisibility = 85
     if crouching:
         targetVisibility = 60
@@ -780,6 +955,8 @@ def updatePlayState(world, keys, events, dt):
     cameraGoal = world["playerRect"].centerx - width // 2
     cameraGoal = max(0, min(levelWidth - width, cameraGoal))
     world["cameraX"] += (cameraGoal - world["cameraX"]) * 2.5 * dt
+    update_fireflies(world, dt)
+    update_leaves(world, dt)
 
     attackActive = world["attacking"] and world["attackAnimFrame"] >= attackActiveFrame
     if attackActive:
@@ -858,6 +1035,13 @@ def updatePlayState(world, keys, events, dt):
         if world["alertMeter"] >= 100:
             world["caught"] = True
             world["flashAmount"] = 1.0
+        if world["alertMeter"] > 85 and world.get("alertLogCooldown", 0.0) <= 0:
+            push_mission_log(world, "Alert level climbing. Stay still.")
+            world["alertLogCooldown"] = 3.0
+
+    if world["caught"] and not was_caught:
+        push_mission_log(world, "Alert! Detection triggered.")
+    world["alertLogCooldown"] = max(0.0, world.get("alertLogCooldown", 0.0) - dt)
 
     # Orb collection logic
     if not world["caught"]:
@@ -865,15 +1049,18 @@ def updatePlayState(world, keys, events, dt):
             if not orb["rescued"] and world["playerRect"].colliderect(orb["rect"]):
                 orb["rescued"] = True
                 world["rescued"] += 1
+                push_mission_log(world, f"Orb secured ({world['rescued']}/{len(world['orbs'])})")
                 spawnParticles(world, orb["rect"])
 
     updateParticles(world, dt)
 
     # Win check
-    if not world["caught"] and world["rescued"] == len(world["orbs"]) and world["playerRect"].colliderect(world["exitRect"]):
+    if not world["caught"] and not world["win"] and world["rescued"] == len(world["orbs"]) and world["playerRect"].colliderect(world["exitRect"]):
         world["win"] = True
+        push_mission_log(world, "Extraction point reached. Mission success imminent.")
 
     world["flashAmount"] = max(0.0, world["flashAmount"] - dt)
+    update_mission_log(world, dt)
 
 
 def drawBackground(surface, cameraX):
@@ -886,14 +1073,127 @@ def drawBackground(surface, cameraX):
             pygame.draw.rect(surface, layerColor, (trunkX - cameraX, 260 + layer * 60, 30, 460))
 
 
+def draw_fog(surface, world):
+    fog_height = max(0, FOG_HEIGHT)
+    if fog_height <= 0:
+        return
+    fog_surface = pygame.Surface((width, fog_height), pygame.SRCALPHA)
+    shift = world.get("fog_shift", 0.0)
+    pulse = 0.15 * math.sin(shift)
+    top_alpha = max(0, min(220, int((0.5 + pulse) * 255)))
+    bottom_alpha = max(20, min(160, int((0.25 + pulse * 0.6) * 255)))
+    for y in range(fog_height):
+        t = y / max(1, fog_height)
+        alpha = int(top_alpha * (1 - t) + bottom_alpha * t)
+        fog_surface.fill((8, 14, 22, alpha), rect=pygame.Rect(0, y, width, 1))
+    surface.blit(fog_surface, (0, 0))
+    highlight = pygame.Surface((width, 4), pygame.SRCALPHA)
+    hl_alpha = min(60, int(20 + abs(pulse) * 40))
+    highlight.fill((255, 255, 255, hl_alpha))
+    surface.blit(highlight, (0, 6))
+
+
+def draw_fireflies(surface, world):
+    flies = world.get("fireflies")
+    if not flies:
+        return
+    cam = world.get("cameraX", 0.0)
+    for fly in flies:
+        glow = 0.4 + 0.4 * math.sin(fly["pulse"])
+        radius = max(2.2, fly["size"] + 1.2 * math.sin(fly["pulse"] * 1.5))
+        size = int(radius * 2 + 4)
+        dot = pygame.Surface((size, size), pygame.SRCALPHA)
+        alpha = max(60, min(220, int(glow * 255)))
+        pygame.draw.circle(dot, (186, 255, 225, alpha), (size // 2, size // 2), int(radius))
+        px = int(round(fly["x"] - cam))
+        py = int(round(fly["y"]))
+        surface.blit(dot, (px - size // 2, py - size // 2))
+
+
+def draw_leaves(surface, world):
+    leaves = world.get("leaves")
+    if not leaves:
+        return
+    cam = world.get("cameraX", 0.0)
+    for leaf in leaves:
+        px = leaf["x"] - cam
+        py = leaf["y"]
+        dx = leaf["direction"] * 12
+        dy = max(1, int(leaf["length"]))
+        width = abs(dx) + 6
+        height = dy + 6
+        leaf_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+        start_x = 3 if dx >= 0 else width - 3
+        start = (start_x, 2)
+        end = (start_x + dx, 2 + dy)
+        alpha = max(60, min(220, int(150 + math.sin(leaf["sway"] * 0.9) * 60)))
+        pygame.draw.line(leaf_surface, (166, 214, 194, alpha), start, end, 2)
+        surface.blit(leaf_surface, (int(px) - start_x, int(py) - 2))
+
+
+def draw_exit_pointer(surface, world):
+    exit_rect = world.get("exitRect")
+    if not exit_rect:
+        return
+    player_center = world["playerRect"].centerx
+    exit_center = exit_rect.centerx
+    direction = exit_center - player_center
+    arrow_dir = 1 if direction >= 0 else -1
+    arrow_x = width - 72
+    arrow_y = 48
+    arrow_points = [
+        (arrow_x, arrow_y),
+        (arrow_x + arrow_dir * 22, arrow_y - 12),
+        (arrow_x + arrow_dir * 32, arrow_y),
+        (arrow_x + arrow_dir * 22, arrow_y + 12),
+    ]
+    pygame.draw.polygon(surface, (174, 245, 225), arrow_points)
+    dist = max(0, abs(int(direction)))
+    label = smallFont.render(f"{dist} px to exit", True, (212, 240, 238))
+    text_x = arrow_x - 140 + (0 if arrow_dir >= 0 else 40)
+    surface.blit(label, (text_x, arrow_y + 32))
+
+
+def draw_stealth_state(surface, world):
+    state = STEALTH_STATES.get(world.get("stealthState"), STEALTH_STATES["idle"])
+    rect = pygame.Rect(30, 110, 220, 28)
+    pygame.draw.rect(surface, (12, 18, 32), rect)
+    pygame.draw.rect(surface, state["color"], rect, width=2, border_radius=6)
+    label = smallFont.render(f"Stealth: {state['label']}", True, state["color"])
+    surface.blit(label, (rect.x + 10, rect.y + 4))
+def draw_mission_log(surface, world):
+    log = world.get("missionLog")
+    if not log:
+        return
+    log_width = 310
+    entry_height = 22
+    header_height = 24
+    padding = 14
+    height = padding + header_height + len(log) * entry_height + padding // 2
+    x = width - log_width - 28
+    y = 80
+    panel = pygame.Surface((log_width, height), pygame.SRCALPHA)
+    rect = panel.get_rect()
+    pygame.draw.rect(panel, (12, 18, 32, 218), rect, border_radius=12)
+    pygame.draw.rect(panel, (120, 210, 190, 200), rect, width=2, border_radius=12)
+    surface.blit(panel, (x, y))
+    header_surface = smallFont.render("Mission Log", True, (211, 247, 236))
+    surface.blit(header_surface, (x + padding, y + header_height - header_surface.get_height()))
+    for idx, entry in enumerate(log):
+        entry_surface = smallFont.render(entry["text"], True, (230, 255, 240))
+        alpha = max(30, min(255, int(entry.get("timer", 0.0) / MISSION_LOG_DURATION * 255)))
+        entry_surface.set_alpha(alpha)
+        surface.blit(entry_surface, (x + padding, y + header_height + 6 + idx * entry_height))
+
+
 def blitPlayerSprite(surface, sprite, world, orientation, cam):
     """Blit player sprite with safe error handling."""
     try:
         if sprite is None:
             return False
         offsetX, offsetY = playerSpriteOffsets.get(orientation, playerSpriteOffsets.get("right", (0, 0)))
-        drawX = world["playerRect"].x - cam - offsetX
-        drawY = world["playerRect"].y - offsetY
+        drawX = int(round(world["playerRect"].x - cam - offsetX))
+        drawY = int(round(world["playerRect"].y - offsetY))
         # Ensure sprite is valid and coordinates are reasonable
         if sprite.get_width() > 0 and sprite.get_height() > 0:
             spriteRect = sprite.get_rect(topleft=(drawX, drawY))
@@ -966,6 +1266,9 @@ def drawOrb(surface, orb, cam, time):
 def drawGame(surface, world):
     # Rendering
     drawBackground(surface, world["cameraX"])
+    draw_fog(surface, world)
+    draw_leaves(surface, world)
+    draw_fireflies(surface, world)
     cam = world["cameraX"]
 
     for platform in world["platforms"]:
@@ -1032,6 +1335,8 @@ def drawGame(surface, world):
     for orb in world["orbs"]:
         drawOrb(surface, orb, cam, currentTime)
 
+    draw_exit_pointer(surface, world)
+
     # Draw player sprite (always draw, even if sprites fail to load)
     spriteDrawn = False
     orientation = "right" if world["facing"] >= 0 else "left"
@@ -1068,8 +1373,8 @@ def drawGame(surface, world):
     # Always draw player fallback (rectangle) if sprites didn't render
     # This ensures the player is always visible, even if sprites fail
     if not spriteDrawn:
-        playerX = int(world["playerRect"].x - cam)
-        playerY = int(world["playerRect"].y)
+        playerX = int(round(world["playerRect"].x - cam))
+        playerY = int(round(world["playerRect"].y))
         # Always draw the player rectangle, even if off-screen (pygame handles clipping)
         try:
             pygame.draw.rect(surface, playerColor, (playerX, playerY, world["playerRect"].width, world["playerRect"].height), border_radius=12)
@@ -1098,6 +1403,10 @@ def drawGame(surface, world):
 
     hintText = smallFont.render("A/D move | SPACE jump | S hide | Left click attack | R retry", True, (170, 180, 190))
     surface.blit(hintText, (30, height - 40))
+
+    draw_mission_log(surface, world)
+
+    draw_stealth_state(surface, world)
 
     if world["alertMeter"] > 85:
         warningSurface = pygame.Surface((width, height), pygame.SRCALPHA)
